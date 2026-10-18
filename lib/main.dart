@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'ui/home_shell.dart';
+import 'router.dart';
 
 void main() {
   runApp(const ProviderScope(child: BookmarkApp()));
@@ -12,7 +12,7 @@ class BookmarkApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'Bookmark',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
@@ -21,7 +21,7 @@ class BookmarkApp extends StatelessWidget {
         brightness: Brightness.dark,
         useMaterial3: true,
       ),
-      home: const HomeShell(),
+      routerConfig: appRouter,
     );
   }
 }

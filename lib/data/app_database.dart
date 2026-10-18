@@ -31,6 +31,23 @@ class AppDatabase extends _$AppDatabase {
       (update(mediaItems)..where((t) => t.id.equals(id))).write(
         MediaItemsCompanion(
           status: Value(status),
+          dropReason: status == Status.dropped
+              ? const Value.absent()
+              : const Value(null),
+          droppedAtPage: status == Status.dropped
+              ? const Value.absent()
+              : const Value(null),
+          lastActivityAt: Value(DateTime.now()),
+        ),
+      );
+
+  /// "Did not complete": both reason and page are optional.
+  Future<void> setDropped(int id, String? reason, int? page) =>
+      (update(mediaItems)..where((t) => t.id.equals(id))).write(
+        MediaItemsCompanion(
+          status: const Value(Status.dropped),
+          dropReason: Value(reason),
+          droppedAtPage: Value(page),
           lastActivityAt: Value(DateTime.now()),
         ),
       );
@@ -42,6 +59,89 @@ class AppDatabase extends _$AppDatabase {
           lastActivityAt: Value(DateTime.now()),
         ),
       );
+
+  // ---------- Item detail ----------
+
+  Stream<MediaItem?> watchItem(int id) =>
+      (select(mediaItems)..where((t) => t.id.equals(id))).watchSingleOrNull();
+
+  /// rating is 1 to 5, or null to clear it.
+  Future<void> setRating(int id, int? rating) =>
+      (update(mediaItems)..where((t) => t.id.equals(id))).write(
+        MediaItemsCompanion(
+          rating: Value(rating),
+          lastActivityAt: Value(DateTime.now()),
+        ),
+      );
+
+  /// Episodes and list entries are removed too (cascade).
+  Future<void> deleteItem(int id) =>
+      (delete(mediaItems)..where((t) => t.id.equals(id))).go();
+
+  // ---------- Series episodes ----------
+
+  Stream<List<Episode>> watchEpisodes(int seriesId) => (select(episodes)
+    ..where((e) => e.seriesId.equals(seriesId))
+    ..orderBy([
+          (e) => OrderingTerm.asc(e.seasonNumber),
+          (e) => OrderingTerm.asc(e.episodeNumber),
+    ]))
+      .watch();
+
+  /// Ticks or unticks episodes, then fixes the series status:
+  /// nothing watched -> want, every aired episode watched -> done,
+  /// anything in between -> inProgress.
+  Future<void> setEpisodesWatched(
+      int seriesId,
+      Iterable<int> ids,
+      bool watched,
+      ) async {
+    if (ids.isEmpty) return;
+    await transaction(() async {
+      final now = DateTime.now();
+      await (update(episodes)..where((e) => e.id.isIn(ids))).write(
+        EpisodesCompanion(
+          watched: Value(watched),
+          watchedAt: Value(watched ? now : null),
+        ),
+      );
+      await _refreshSeriesStatus(seriesId, touch: watched);
+    });
+  }
+
+  /// Unticks every episode and moves the series back to "want".
+  Future<void> clearSeriesProgress(int seriesId) => transaction(() async {
+    await (update(episodes)..where((e) => e.seriesId.equals(seriesId)))
+        .write(EpisodesCompanion(
+      watched: const Value(false),
+      watchedAt: const Value(null),
+    ));
+    await _refreshSeriesStatus(seriesId, touch: false);
+  });
+
+  Future<void> _refreshSeriesStatus(int seriesId, {required bool touch}) async {
+    final rows =
+    await (select(episodes)..where((e) => e.seriesId.equals(seriesId))).get();
+    final now = DateTime.now();
+    final watchedCount = rows.where((e) => e.watched).length;
+    final unwatchedAired = rows
+        .where((e) =>
+    !e.watched && e.airDate != null && !e.airDate!.isAfter(now))
+        .length;
+
+    final status = watchedCount == 0
+        ? Status.want
+        : (unwatchedAired == 0 ? Status.done : Status.inProgress);
+
+    await (update(mediaItems)..where((t) => t.id.equals(seriesId))).write(
+      MediaItemsCompanion(
+        status: Value(status),
+        // Only real watching counts as activity (it moves the series up
+        // "Recently watched").
+        lastActivityAt: touch ? Value(now) : const Value.absent(),
+      ),
+    );
+  }
 
   // ---------- Home screen ----------
 

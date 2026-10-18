@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../data/app_database.dart';
+import 'detail_info.dart';
 import 'search_result.dart';
 
 class OpenLibraryClient {
@@ -15,10 +16,12 @@ class OpenLibraryClient {
 
   final Dio _dio;
 
-  Future<List<SearchResult>> search(String query) async {
+  Future<List<SearchResult>> search(String query) =>
+      _search({'q': query, 'limit': 25});
+
+  Future<List<SearchResult>> _search(Map<String, dynamic> params) async {
     final res = await _dio.get('/search.json', queryParameters: {
-      'q': query,
-      'limit': 25,
+      ...params,
       'fields':
       'key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject',
     });
@@ -39,5 +42,116 @@ class OpenLibraryClient {
         genres: subjects.take(3).map((s) => s.replaceAll(',', ' ')).join(','),
       );
     }).toList();
+  }
+
+  // Subjects that say nothing about the content of a book.
+  static const _skipSubjects = [
+    'accessible book',
+    'protected daisy',
+    'in library',
+    'large type',
+    'overdrive',
+    'open library',
+  ];
+  static const _tooGeneric = [
+    'fiction',
+    'general',
+    'literature',
+    'novel',
+    'novels',
+    'nonfiction',
+  ];
+
+  /// "You may also like": other books by the same author, then top-rated
+  /// books in one of this book's subjects. Failures give an empty list.
+  Future<List<SearchResult>> similarBooks({
+    required String workKey,
+    required String title,
+    String? author,
+    List<String> subjects = const [],
+  }) async {
+    String? topic;
+    for (final s in subjects) {
+      final low = s.toLowerCase();
+      if (_skipSubjects.any(low.contains) || _tooGeneric.contains(low)) continue;
+      topic = s.replaceAll('"', '');
+      break;
+    }
+
+    Future<List<SearchResult>> safe(Map<String, dynamic> params) async {
+      try {
+        return await _search(params);
+      } catch (_) {
+        return const [];
+      }
+    }
+
+    final cleanAuthor = author?.replaceAll('"', '').trim();
+    final lists = await Future.wait([
+      (cleanAuthor == null || cleanAuthor.isEmpty)
+          ? Future.value(<SearchResult>[])
+          : safe({'q': 'author:"$cleanAuthor"', 'sort': 'rating', 'limit': 12}),
+      topic == null
+          ? Future.value(<SearchResult>[])
+          : safe({'q': 'subject:"$topic"', 'sort': 'rating', 'limit': 20}),
+    ]);
+
+    // Author's other books first, then the subject matches, then the rest.
+    final ordered = [...lists[0].take(6), ...lists[1], ...lists[0].skip(6)];
+
+    final seenKeys = <String>{workKey};
+    final seenTitles = <String>{title.toLowerCase()};
+    final out = <SearchResult>[];
+    for (final r in ordered) {
+      if (r.posterUrl == null) continue;
+      if (!seenKeys.add(r.externalId)) continue;
+      if (!seenTitles.add(r.title.toLowerCase())) continue;
+      out.add(r);
+      if (out.length == 12) break;
+    }
+    return out;
+  }
+
+  /// Description, average rating and subjects for the book detail page.
+  /// [key] is the work key we store, for example "/works/OL45883W".
+  Future<BookInfo> bookInfo(String key) async {
+    final work = (await _dio.get('$key.json')).data as Map<String, dynamic>;
+
+    // The rating is a bonus, so a failure here must not break the page.
+    double? average;
+    var count = 0;
+    try {
+      final r = await _dio.get('$key/ratings.json');
+      final summary = (r.data['summary'] as Map?) ?? const {};
+      average = (summary['average'] as num?)?.toDouble();
+      count = (summary['count'] as num?)?.toInt() ?? 0;
+    } catch (_) {}
+
+    final subjects = ((work['subjects'] as List?) ?? const [])
+        .whereType<String>()
+        .where((s) => s.length <= 28)
+        .take(8)
+        .toList();
+
+    return BookInfo(
+      description: _description(work['description']),
+      ratingAverage: average,
+      ratingCount: count,
+      subjects: subjects,
+    );
+  }
+
+  /// Open Library descriptions are either a string or {type, value}, and often
+  /// end with a "----------" section of links. Keep only the main text.
+  static String? _description(dynamic d) {
+    var text = d is Map ? d['value'] : d;
+    if (text is! String) return null;
+    text = text.split(RegExp(r'\r?\n\s*-{5,}')).first;
+    text = text.replaceAllMapped(
+      RegExp(r'\[([^\]]+)\]\([^)]*\)'),
+          (m) => m[1]!,
+    );
+    text = text.trim();
+    return text.isEmpty ? null : text;
   }
 }

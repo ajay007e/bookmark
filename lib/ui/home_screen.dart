@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../data/app_database.dart';
 import '../providers.dart';
@@ -14,6 +15,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final count = ref.watch(itemCountProvider);
     final hero = ref.watch(heroProvider);
+    final heroHeight = MediaQuery.sizeOf(context).height * 0.6;
 
     return Scaffold(
       appBar: AppBar(
@@ -41,21 +43,24 @@ class HomeScreen extends ConsumerWidget {
             hero.when(
               data: (items) => items.isEmpty
                   ? const _EmptyHero()
-                  : _HeroCarousel(items: items),
-              loading: () => const SizedBox(
-                height: 230,
-                child: Center(child: CircularProgressIndicator()),
+                  : _HeroCarousel(items: items, height: heroHeight),
+              loading: () => SizedBox(
+                height: heroHeight,
+                child: const Center(child: CircularProgressIndicator()),
               ),
               error: (e, _) => Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text('Something went wrong: $e'),
               ),
             ),
-            _PosterRow(title: 'Recently watched', items: ref.watch(recentWatchedProvider)),
-            _PosterRow(title: 'Recently read', items: ref.watch(recentReadProvider)),
-            _PosterRow(title: 'Movie wish list', items: ref.watch(wishlistProvider(MediaType.movie))),
-            _PosterRow(title: 'Series wish list', items: ref.watch(wishlistProvider(MediaType.series))),
-            _PosterRow(title: 'Book wish list', items: ref.watch(wishlistProvider(MediaType.book))),
+            _PosterRow(
+              title: 'Recently watched',
+              items: ref.watch(recentWatchedProvider),
+            ),
+            _PosterRow(
+              title: 'Recently read',
+              items: ref.watch(recentReadProvider),
+            ),
           ],
         ),
         orElse: () => const Center(child: CircularProgressIndicator()),
@@ -89,9 +94,10 @@ class _EmptyHero extends StatelessWidget {
 }
 
 class _HeroCarousel extends StatefulWidget {
-  const _HeroCarousel({required this.items});
+  const _HeroCarousel({required this.items, required this.height});
 
   final List<MediaItem> items;
+  final double height;
 
   @override
   State<_HeroCarousel> createState() => _HeroCarouselState();
@@ -109,7 +115,7 @@ class _HeroCarouselState extends State<_HeroCarousel> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 250,
+      height: widget.height,
       child: PageView.builder(
         controller: _controller,
         itemCount: widget.items.length,
@@ -125,74 +131,63 @@ class _HeroCard extends StatelessWidget {
   final MediaItem item;
 
   String get _subtitle {
-    if (item.type == MediaType.book) {
-      final pages = item.pageCount;
-      return pages == null
-          ? 'Reading'
-          : 'Reading · page ${item.currentPage} of $pages';
-    }
+    if (item.type == MediaType.book) return 'Reading';
     return item.status == Status.done ? 'New episode available' : 'Watching';
   }
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final pages = item.pageCount;
-    final showProgress =
-        item.type == MediaType.book && pages != null && pages > 0;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            PosterImage.fromItem(item),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.8),
+    return GestureDetector(
+      onTap: () => context.push('/item/${item.id}'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              PosterImage.fromItem(item, hd: true),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.center,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.85),
+                    ],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 24,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _subtitle,
+                      style: text.titleSmall?.copyWith(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.title,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.headlineMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ],
                 ),
               ),
-            ),
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 16,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _subtitle,
-                    style: text.labelLarge?.copyWith(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    item.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.headlineSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if (showProgress) ...[
-                    const SizedBox(height: 10),
-                    LinearProgressIndicator(
-                      value: (item.currentPage / pages).clamp(0.0, 1.0),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

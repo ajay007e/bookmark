@@ -112,7 +112,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => _AddSheet(result: result),
+      builder: (_) => AddSheet(result: result),
     );
   }
 
@@ -219,16 +219,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 }
 
 /// Bottom sheet: pick a status, then add.
-class _AddSheet extends ConsumerStatefulWidget {
-  const _AddSheet({required this.result});
+class AddSheet extends ConsumerStatefulWidget {
+  const AddSheet({required this.result});
 
   final SearchResult result;
 
   @override
-  ConsumerState<_AddSheet> createState() => _AddSheetState();
+  ConsumerState<AddSheet> createState() => _AddSheetState();
 }
 
-class _AddSheetState extends ConsumerState<_AddSheet> {
+class _AddSheetState extends ConsumerState<AddSheet> {
   Status _status = Status.want;
   bool _saving = false;
 
