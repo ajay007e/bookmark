@@ -1,9 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/app_database.dart';
 import '../providers.dart';
+import 'search_screen.dart';
+import 'widgets/empty_state.dart';
 import 'widgets/poster_card.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -11,38 +12,53 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(itemCountProvider);
     final hero = ref.watch(heroProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Bookmark')),
-      floatingActionButton: kDebugMode
-          ? FloatingActionButton.extended(
-        onPressed: () => ref.read(databaseProvider).seedSamples(),
-        icon: const Icon(Icons.science_outlined),
-        label: const Text('Sample data'),
-      )
-          : null,
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 96),
-        children: [
-          hero.when(
-            data: (items) =>
-            items.isEmpty ? const _EmptyHero() : _HeroCarousel(items: items),
-            loading: () => const SizedBox(
-              height: 230,
-              child: Center(child: CircularProgressIndicator()),
-            ),
-            error: (e, _) => Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text('Something went wrong: $e'),
-            ),
+      appBar: AppBar(
+        title: const Text('Bookmark'),
+        actions: [
+          IconButton(
+            tooltip: 'Search and add',
+            icon: const Icon(Icons.search),
+            onPressed: () => openSearch(context),
           ),
-          _PosterRow(title: 'Recently watched', items: ref.watch(recentWatchedProvider)),
-          _PosterRow(title: 'Recently read', items: ref.watch(recentReadProvider)),
-          _PosterRow(title: 'Movie wish list', items: ref.watch(wishlistProvider(MediaType.movie))),
-          _PosterRow(title: 'Series wish list', items: ref.watch(wishlistProvider(MediaType.series))),
-          _PosterRow(title: 'Book wish list', items: ref.watch(wishlistProvider(MediaType.book))),
         ],
+      ),
+      body: count.maybeWhen(
+        data: (n) => n == 0
+            ? EmptyState(
+          title: 'Your Bookmark is empty',
+          message:
+          'Search for a movie, series or book and add it to start tracking what you watch and read.',
+          actionLabel: 'Search and add',
+          onAction: () => openSearch(context),
+        )
+            : ListView(
+          padding: const EdgeInsets.only(bottom: 24),
+          children: [
+            hero.when(
+              data: (items) => items.isEmpty
+                  ? const _EmptyHero()
+                  : _HeroCarousel(items: items),
+              loading: () => const SizedBox(
+                height: 230,
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (e, _) => Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('Something went wrong: $e'),
+              ),
+            ),
+            _PosterRow(title: 'Recently watched', items: ref.watch(recentWatchedProvider)),
+            _PosterRow(title: 'Recently read', items: ref.watch(recentReadProvider)),
+            _PosterRow(title: 'Movie wish list', items: ref.watch(wishlistProvider(MediaType.movie))),
+            _PosterRow(title: 'Series wish list', items: ref.watch(wishlistProvider(MediaType.series))),
+            _PosterRow(title: 'Book wish list', items: ref.watch(wishlistProvider(MediaType.book))),
+          ],
+        ),
+        orElse: () => const Center(child: CircularProgressIndicator()),
       ),
     );
   }
@@ -55,7 +71,7 @@ class _EmptyHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      height: 180,
+      height: 140,
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
@@ -64,7 +80,7 @@ class _EmptyHero extends StatelessWidget {
       alignment: Alignment.center,
       padding: const EdgeInsets.all(24),
       child: Text(
-        'Nothing in progress yet.\nStart a series or a book and it shows up here.',
+        'Nothing in progress right now.\nStart something from your wish list.',
         textAlign: TextAlign.center,
         style: Theme.of(context).textTheme.bodyLarge,
       ),
@@ -132,7 +148,7 @@ class _HeroCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            PosterImage(item: item),
+            PosterImage.fromItem(item),
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(

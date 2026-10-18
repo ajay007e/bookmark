@@ -1,4 +1,3 @@
-
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
@@ -100,38 +99,24 @@ class AppDatabase extends _$AppDatabase {
     ..orderBy([(t) => OrderingTerm.desc(t.lastActivityAt)]))
       .watch();
 
-  // ---------- Debug helper until search exists ----------
+  // ---------- Search / add helpers ----------
 
-  Future<void> seedSamples() async {
-    MediaItemsCompanion c(MediaType type, String id, String title, Status s,
-        {String? author, int? pages, int page = 0}) =>
-        MediaItemsCompanion.insert(
-          type: type,
-          externalId: id,
-          title: title,
-          status: Value(s),
-          author: Value(author),
-          pageCount: Value(pages),
-          currentPage: Value(page),
-        );
+  Future<int?> findId(MediaType type, String externalId) async {
+    final row = await (select(mediaItems)
+      ..where((t) =>
+      t.type.equalsValue(type) & t.externalId.equals(externalId)))
+        .getSingleOrNull();
+    return row?.id;
+  }
 
-    await batch((b) {
-      b.insertAll(
-        mediaItems,
-        [
-          c(MediaType.series, 'sample-s1', 'Sample Series One', Status.inProgress),
-          c(MediaType.series, 'sample-s2', 'Sample Series Two', Status.want),
-          c(MediaType.movie, 'sample-m1', 'Sample Movie One', Status.done),
-          c(MediaType.movie, 'sample-m2', 'Sample Movie Two', Status.want),
-          c(MediaType.book, 'sample-b1', 'Sample Book One', Status.inProgress,
-              author: 'A. Writer', pages: 320, page: 120),
-          c(MediaType.book, 'sample-b2', 'Sample Book Two', Status.done,
-              author: 'B. Author', pages: 280, page: 280),
-          c(MediaType.book, 'sample-b3', 'Sample Book Three', Status.want,
-              author: 'C. Novelist', pages: 410),
-        ],
-        mode: InsertMode.insertOrIgnore,
-      );
-    });
+  Future<void> insertEpisodes(List<EpisodesCompanion> list) => batch(
+        (b) => b.insertAll(episodes, list, mode: InsertMode.insertOrIgnore),
+  );
+
+  Stream<int> itemCount() {
+    final count = mediaItems.id.count();
+    return (selectOnly(mediaItems)..addColumns([count]))
+        .map((row) => row.read(count) ?? 0)
+        .watchSingle();
   }
 }

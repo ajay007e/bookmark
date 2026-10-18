@@ -11,37 +11,55 @@ IconData _iconFor(MediaType type) => switch (type) {
 
 /// Poster or cover image, with a simple placeholder when there is no image.
 class PosterImage extends StatelessWidget {
-  const PosterImage({super.key, required this.item});
+  const PosterImage({
+    super.key,
+    required this.type,
+    required this.title,
+    this.url,
+  });
 
-  final MediaItem item;
+  PosterImage.fromItem(MediaItem item, {Key? key})
+      : this(key: key, type: item.type, title: item.title, url: item.posterUrl);
+
+  final MediaType type;
+  final String title;
+  final String? url;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final placeholder = Container(
-      color: scheme.surfaceContainerHighest,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(_iconFor(item.type), color: scheme.onSurfaceVariant),
-          const SizedBox(height: 6),
-          Text(
-            item.title,
-            textAlign: TextAlign.center,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelSmall,
+
+    final placeholder = LayoutBuilder(
+      builder: (context, constraints) {
+        final small = constraints.maxWidth < 80;
+        return Container(
+          color: scheme.surfaceContainerHighest,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.all(8),
+          child: small
+              ? Icon(_iconFor(type), color: scheme.onSurfaceVariant)
+              : Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_iconFor(type), color: scheme.onSurfaceVariant),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
 
-    final url = item.posterUrl;
-    if (url == null) return placeholder;
+    final imageUrl = url;
+    if (imageUrl == null) return placeholder;
     return CachedNetworkImage(
-      imageUrl: url,
+      imageUrl: imageUrl,
       fit: BoxFit.cover,
       placeholder: (_, __) => placeholder,
       errorWidget: (_, __, ___) => placeholder,
@@ -64,7 +82,7 @@ class PosterCard extends StatelessWidget {
           aspectRatio: 2 / 3,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: PosterImage(item: item),
+            child: PosterImage.fromItem(item),
           ),
         ),
         Padding(
