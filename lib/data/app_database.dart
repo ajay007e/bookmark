@@ -273,31 +273,45 @@ class AppDatabase extends _$AppDatabase {
 
   // ---------- Home screen ----------
 
-  /// Books being read, series being watched, and finished series that have
-  /// aired but unwatched episodes.
+  /// Books being read, movies being watched, and series you are watching that
+  /// have an aired episode you have not ticked. A series you are caught up on
+  /// is left out (even if it is still running) until new episodes are saved.
   Stream<List<MediaItem>> hero() {
     final query = customSelect(
       'SELECT * FROM media_items '
           'WHERE (type = ? AND status = ?) '
           '   OR (type = ? AND status = ?) '
-          '   OR (type = ? AND status = ? AND id IN ('
-          '        SELECT series_id FROM episodes '
-          '        WHERE watched = 0 AND air_date IS NOT NULL AND air_date <= ?)) '
+          '   OR (type = ? AND status IN (?, ?)) '
           'ORDER BY last_activity_at DESC',
       variables: [
         Variable.withInt(MediaType.book.index),
         Variable.withInt(Status.inProgress.index),
-        Variable.withInt(MediaType.series.index),
+        Variable.withInt(MediaType.movie.index),
         Variable.withInt(Status.inProgress.index),
         Variable.withInt(MediaType.series.index),
+        Variable.withInt(Status.inProgress.index),
         Variable.withInt(Status.done.index),
-        Variable.withDateTime(DateTime.now()),
       ],
       readsFrom: {mediaItems, episodes},
     );
-    return query
-        .watch()
-        .map((rows) => rows.map((r) => mediaItems.map(r.data)).toList());
+
+    // Series are checked in Dart, with the current time on every refresh.
+    return query.watch().asyncMap((rows) async {
+      final now = DateTime.now();
+      final shown = <MediaItem>[];
+      for (final row in rows) {
+        final item = mediaItems.map(row.data);
+        if (item.type == MediaType.series) {
+          final eps = await episodesOf(item.id);
+          final hasNext = eps.any(
+                (e) => !e.watched && e.airDate != null && !e.airDate!.isAfter(now),
+          );
+          if (!hasNext) continue;
+        }
+        shown.add(item);
+      }
+      return shown;
+    });
   }
 
   Stream<List<MediaItem>> recentWatched() => (select(mediaItems)

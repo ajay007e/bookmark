@@ -1,4 +1,4 @@
-import 'dart:math' show min;
+import 'dart:math' show max, min;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -98,4 +98,15 @@ Future<void> tickEpisodes(
     await db.setEpisodesWatched(seriesId, earlierIds, true, counted: false);
   }
   await db.setEpisodesWatched(seriesId, targetIds, true);
+}
+
+/// The episode to watch next: the first aired, unticked episode after the
+/// furthest one you have ticked. If there is none after it, the earliest
+/// aired, unticked episode. null when you are all caught up.
+Episode? nextEpisode(List<Episode> eps, DateTime now) {
+  final todo = eps.where((e) => !e.watched && isAired(e, now)).toList()
+    ..sort((a, b) => _order(a).compareTo(_order(b)));
+  if (todo.isEmpty) return null;
+  final furthest = eps.where((e) => e.watched).map(_order).fold<int>(-1, max);
+  return todo.firstWhere((e) => _order(e) > furthest, orElse: () => todo.first);
 }

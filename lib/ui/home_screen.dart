@@ -134,17 +134,101 @@ class _HeroCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
+    final db = ref.read(databaseProvider);
+    final isSeries = item.type == MediaType.series;
+    final isBook = item.type == MediaType.book;
 
-    var subtitle = 'Reading';
-    if (item.type == MediaType.series) {
-      final eps = ref
-          .watch(episodesProvider(item.id))
-          .maybeWhen<List<Episode>>(data: (l) => l, orElse: () => const <Episode>[]);
-      final now = DateTime.now();
+    final eps = isSeries
+        ? ref
+        .watch(episodesProvider(item.id))
+        .maybeWhen<List<Episode>>(data: (l) => l, orElse: () => const <Episode>[])
+        : const <Episode>[];
+    final now = DateTime.now();
+    final next = isSeries ? nextEpisode(eps, now) : null;
+
+    var subtitle = switch (item.type) {
+      MediaType.book => 'Reading',
+      MediaType.movie => 'Watching',
+      MediaType.series => 'Up next',
+    };
+    if (isSeries) {
       final hasNew = item.status == Status.done ||
           eps.any((e) =>
           !e.watched && isAired(e, now) && e.airDate!.isAfter(item.lastActivityAt));
-      subtitle = hasNew ? 'New episode available' : 'Watching';
+      if (hasNew) subtitle = 'New episode available';
+    }
+
+    // The same round tick for series, books and movies.
+    Widget tick(String tooltip, VoidCallback onPressed) => IconButton.filled(
+      tooltip: tooltip,
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+      ),
+      icon: const Icon(Icons.check),
+      onPressed: onPressed,
+    );
+
+    final title = Text(
+      item.title,
+      maxLines: 3,
+      overflow: TextOverflow.ellipsis,
+      style: text.headlineMedium?.copyWith(
+        color: Colors.white,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+
+    final Widget titleBlock;
+    if (isSeries) {
+      // Title, then "S2 E5 · Episode title" with the tick at the end.
+      final n = next;
+      titleBlock = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          title,
+          if (n != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'S${n.seasonNumber} E${n.episodeNumber} · ${n.title ?? 'Episode ${n.episodeNumber}'}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.titleMedium?.copyWith(color: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                tick(
+                  'Mark as watched',
+                      () => tickEpisodes(
+                    context,
+                    ref,
+                    seriesId: item.id,
+                    all: eps,
+                    targets: [n],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      );
+    } else {
+      // Books and movies: the tick sits at the end of the title.
+      titleBlock = Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(child: title),
+          const SizedBox(width: 12),
+          tick(
+            isBook ? 'Mark as read' : 'Mark as watched',
+                () => db.markDone(item, counted: true),
+          ),
+        ],
+      );
     }
 
     return GestureDetector(
@@ -182,15 +266,7 @@ class _HeroCard extends ConsumerWidget {
                       style: text.titleSmall?.copyWith(color: Colors.white70),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      item.title,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.headlineMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    titleBlock,
                   ],
                 ),
               ),

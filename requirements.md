@@ -84,14 +84,22 @@ status dropdown.
 - Planned: watch-time statistics from the watch history (counted entries only)
 
 ## Home screen
-1. Hero carousel with large posters (about 60% of the screen height): series being watched,
-   series with a new episode available, and the book being read
+1. Hero carousel with large posters (about 60% of the screen height). It only shows things you
+   can act on, each with the same round tick used on the detail pages:
+    - **Series:** only a series (Watching or Watched) that has an aired, unticked episode. The card
+      shows "Up next", or "New episode available" when an unticked aired episode aired after your
+      last activity on the series. Under the title is the next episode (S2 E5 · title) with a tick
+      that marks it watched. The next episode is the first aired, unticked episode after the
+      furthest one ticked, or the earliest unticked aired one if none follows it. Ticking uses the
+      usual "Mark earlier episodes too?" prompt.
+    - **Book being read:** a tick at the end of the title marks it as read.
+    - **Movie set to Watching** (only possible by adding it as Watching from the search sheet): a
+      tick at the end of the title marks it as watched.
+      A series you have watched up to the last aired episode is not shown, even if it is still
+      running. It comes back when new episodes are saved for it (the daily background check will do
+      that automatically). Tapping the rest of a card opens the item's page.
 2. Recently watched movies and series
 3. Recently read books
-
-"New episode available" shows on a series when it has an aired, unticked episode that aired after
-your last activity on that series (or it is a Watched series with an aired, unticked episode).
-Otherwise a series shows "Watching".
 
 Wish lists are not on Home. They are available through the "Want to ..." status filter on the
 Books, Movies and Series screens.
@@ -153,6 +161,7 @@ at display time (TMDB w780, Open Library -L).
 - [x] Series status rules (running series stay Watching)
 - [x] Redesigned detail layouts, Watch now (Australia)
 - [x] Series Details and Episodes tabs (pinned season cards, last watched episode at the top)
+- [x] Home hero as a to-do list: next episode with tick, book and movie ticks, caught-up series hidden
 - [ ] Daily background check for new episodes (workmanager). Also refreshes the saved episode list,
   since episodes are currently only fetched once when a series is added.
 - [ ] Lists and tags screen (Library tab)
