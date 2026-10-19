@@ -13,14 +13,20 @@ class LibraryRepository {
 
   Future<void> add(SearchResult r, Status status) async {
     var genres = r.genres;
+    int? runtime;
+    bool? ongoing;
     var episodes = const <EpisodeInfo>[];
 
     switch (r.type) {
       case MediaType.movie:
-        genres = await _tmdb.movieGenres(r.externalId);
+        final basics = await _tmdb.movieBasics(r.externalId);
+        genres = basics.genres;
+        runtime = basics.runtime;
       case MediaType.series:
         final details = await _tmdb.seriesDetails(r.externalId);
         genres = details.genres;
+        runtime = details.runtime;
+        ongoing = details.ongoing;
         episodes = details.episodes;
       case MediaType.book:
         break;
@@ -35,28 +41,43 @@ class LibraryRepository {
       year: Value(r.year),
       genres: Value(genres),
       status: Value(status),
+      runtime: Value(runtime),
+      ongoing: Value(ongoing),
       author: Value(r.author),
       pageCount: Value(r.pageCount),
       currentPage: Value(status == Status.done ? (r.pageCount ?? 0) : 0),
     ));
 
-    if (episodes.isEmpty) return;
     final id = await _db.findId(r.type, r.externalId);
     if (id == null) return;
 
-    final now = DateTime.now();
-    await _db.insertEpisodes(episodes.map((e) {
-      final aired = e.airDate != null && !e.airDate!.isAfter(now);
-      final watched = status == Status.done && aired;
-      return EpisodesCompanion.insert(
+    if (r.type == MediaType.series) {
+      await _db.insertEpisodes(episodes
+          .map((e) => EpisodesCompanion.insert(
         seriesId: id,
         seasonNumber: e.season,
         episodeNumber: e.number,
         title: Value(e.title),
         airDate: Value(e.airDate),
-        watched: Value(watched),
-        watchedAt: Value(watched ? now : null),
-      );
-    }).toList());
+        runtime: Value(e.runtime),
+      ))
+          .toList());
+
+      if (status == Status.done) {
+        // Added as already watched: tick every aired episode as "earlier".
+        // (An ongoing series ends up as Watching, not Watched.)
+        final now = DateTime.now();
+        final aired = (await _db.episodesOf(id))
+            .where((e) => e.airDate != null && !e.airDate!.isAfter(now));
+        await _db.setEpisodesWatched(
+          id,
+          aired.map((e) => e.id),
+          true,
+          counted: false,
+        );
+      }
+    } else if (status == Status.done) {
+      await _db.addLog(id, counted: false, minutes: runtime);
+    }
   }
 }

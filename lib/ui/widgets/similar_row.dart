@@ -9,7 +9,7 @@ import '../search_screen.dart';
 import 'poster_card.dart';
 
 /// "You may also like". Tap an item you already have to open it,
-/// or tap a new one to add it.
+/// or tap a new one to add it. As tall as its content.
 class SimilarRow extends ConsumerWidget {
   const SimilarRow({super.key, required this.type, required this.items});
 
@@ -27,76 +27,81 @@ class SimilarRow extends ConsumerWidget {
     );
     final text = Theme.of(context).textTheme;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 24),
-        Text('You may also like', style: text.titleMedium),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 210,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (_, i) {
-              final r = items[i];
-              final id = owned[r.externalId];
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  if (id != null) {
-                    context.push('/item/$id');
-                  } else {
-                    showModalBottomSheet<void>(
-                      context: context,
-                      showDragHandle: true,
-                      isScrollControlled: true,
-                      builder: (_) => AddSheet(result: r),
-                    );
-                  }
-                },
-                child: SizedBox(
-                  width: 110,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    Widget tile(SearchResult r) {
+      final id = owned[r.externalId];
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (id != null) {
+            context.push('/item/$id');
+          } else {
+            showModalBottomSheet<void>(
+              context: context,
+              showDragHandle: true,
+              isScrollControlled: true,
+              builder: (_) => AddSheet(result: r),
+            );
+          }
+        },
+        child: SizedBox(
+          width: 110,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AspectRatio(
+                aspectRatio: 2 / 3,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      AspectRatio(
-                        aspectRatio: 2 / 3,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              PosterImage(type: r.type, title: r.title, url: r.posterUrl),
-                              if (id != null)
-                                const Positioned(
-                                  top: 6,
-                                  right: 6,
-                                  child: CircleAvatar(
-                                    radius: 11,
-                                    backgroundColor: Colors.black54,
-                                    child: Icon(Icons.check, size: 14, color: Colors.white),
-                                  ),
-                                ),
-                            ],
+                      PosterImage(type: r.type, title: r.title, url: r.posterUrl),
+                      if (id != null)
+                        const Positioned(
+                          top: 6,
+                          right: 6,
+                          child: CircleAvatar(
+                            radius: 11,
+                            backgroundColor: Colors.black54,
+                            child: Icon(Icons.check, size: 14, color: Colors.white),
                           ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          r.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.labelLarge,
-                        ),
-                      ),
                     ],
                   ),
                 ),
-              );
-            },
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  r.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.labelLarge,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 20),
+        Text('You may also like', style: text.titleMedium),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0) const SizedBox(width: 12),
+                tile(items[i]),
+              ],
+            ],
           ),
         ),
       ],

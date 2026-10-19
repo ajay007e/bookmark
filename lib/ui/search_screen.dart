@@ -220,7 +220,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
 /// Bottom sheet: pick a status, then add.
 class AddSheet extends ConsumerStatefulWidget {
-  const AddSheet({required this.result});
+  const AddSheet({super.key, required this.result});
 
   final SearchResult result;
 

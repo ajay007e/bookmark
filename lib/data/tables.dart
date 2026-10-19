@@ -17,12 +17,18 @@ class MediaItems extends Table {
   TextColumn get genres => text().withDefault(const Constant(''))();
   IntColumn get status =>
       intEnum<Status>().withDefault(const Constant(0))(); // 0 = want
-  IntColumn get rating => integer().nullable()();
+  IntColumn get rating => integer().nullable()(); // unused
+
+  // Movie: runtime in minutes. Series: typical episode length in minutes.
+  IntColumn get runtime => integer().nullable()();
+
+  // Series only: is the show still running? null = not known yet.
+  BoolColumn get ongoing => boolean().nullable()();
 
   // Book only
   TextColumn get author => text().nullable()();
   IntColumn get pageCount => integer().nullable()();
-  IntColumn get currentPage => integer().withDefault(const Constant(0))();
+  IntColumn get currentPage => integer().withDefault(const Constant(0))(); // unused
   TextColumn get dropReason => text().nullable()();
   IntColumn get droppedAtPage => integer().nullable()();
 
@@ -45,6 +51,7 @@ class Episodes extends Table {
   IntColumn get episodeNumber => integer()();
   TextColumn get title => text().nullable()();
   DateTimeColumn get airDate => dateTime().nullable()();
+  IntColumn get runtime => integer().nullable()(); // minutes
   BoolColumn get watched => boolean().withDefault(const Constant(false))();
   DateTimeColumn get watchedAt => dateTime().nullable()();
 
@@ -52,6 +59,24 @@ class Episodes extends Table {
   List<Set<Column>> get uniqueKeys => [
     {seriesId, seasonNumber, episodeNumber},
   ];
+}
+
+/// One row each time something was watched or read. Used for watch-time stats.
+/// Movies and books: episodeId is null. Series: one row per episode.
+class WatchLogs extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get itemId =>
+      integer().references(MediaItems, #id, onDelete: KeyAction.cascade)();
+  IntColumn get episodeId => integer()
+      .nullable()
+      .references(Episodes, #id, onDelete: KeyAction.cascade)();
+  DateTimeColumn get watchedAt => dateTime()();
+
+  /// true = "watched now" (counts in the timeline), false = "watched earlier".
+  BoolColumn get counted => boolean().withDefault(const Constant(true))();
+
+  /// Runtime in minutes at the time it was logged (null for books).
+  IntColumn get minutes => integer().nullable()();
 }
 
 /// Custom lists and tags (Favorites, Weekend watch, ...).

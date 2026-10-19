@@ -39,8 +39,10 @@ Future<bool> confirmDialog(
   return ok ?? false;
 }
 
-/// Marks [targets] as watched. If earlier aired episodes (this season or
+/// Marks [targets] as watched now. If earlier aired episodes (this season or
 /// earlier seasons) are still unticked, asks whether to tick them too.
+/// Those earlier ones are saved as "watched earlier", so they stay out of
+/// your watch time.
 Future<void> tickEpisodes(
     BuildContext context,
     WidgetRef ref, {
@@ -62,7 +64,7 @@ Future<void> tickEpisodes(
       _order(e) < first)
       .toList();
 
-  var ids = targetIds.toList();
+  var earlierIds = <int>[];
   if (earlier.isNotEmpty) {
     final n = earlier.length;
     final answer = await showDialog<bool>(
@@ -89,8 +91,11 @@ Future<void> tickEpisodes(
       ),
     );
     if (answer == null) return; // Cancel or tapped outside: change nothing
-    if (answer) ids = [...ids, ...earlier.map((e) => e.id)];
+    if (answer) earlierIds = earlier.map((e) => e.id).toList();
   }
 
-  await db.setEpisodesWatched(seriesId, ids, true);
+  if (earlierIds.isNotEmpty) {
+    await db.setEpisodesWatched(seriesId, earlierIds, true, counted: false);
+  }
+  await db.setEpisodesWatched(seriesId, targetIds, true);
 }

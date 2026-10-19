@@ -4,47 +4,62 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/detail_info.dart';
 import '../data/app_database.dart';
 import '../providers.dart';
+import 'format.dart';
 import 'widgets/cast_row.dart';
+import 'widgets/credit_block.dart';
 import 'widgets/detail_header.dart';
 import 'widgets/load_note.dart';
+import 'widgets/meta_block.dart';
+import 'widgets/section_divider.dart';
 import 'widgets/similar_row.dart';
-import 'widgets/score_badge.dart';
-import 'widgets/status_menu.dart';
+import 'widgets/title_row.dart';
+import 'widgets/watch_now.dart';
+import 'widgets/watch_tick.dart';
 
 class MovieDetailView extends ConsumerWidget {
   const MovieDetailView({super.key, required this.item});
 
   final MediaItem item;
 
-  static const _choices = [Status.want, Status.inProgress, Status.done];
-
-  static String _runtime(int minutes) {
-    final h = minutes ~/ 60;
-    final m = minutes % 60;
-    if (h == 0) return '${m}m';
-    return m == 0 ? '${h}h' : '${h}h ${m}m';
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
     final info = ref.watch(movieInfoProvider(item.externalId));
-    final loaded =
-    info.maybeWhen<MovieInfo?>(data: (i) => i, orElse: () => null);
+    final loaded = info.maybeWhen<MovieInfo?>(data: (i) => i, orElse: () => null);
 
-    final runtime = loaded?.runtime;
+    // Older movies get their runtime saved the first time details load.
+    ref.listen<AsyncValue<MovieInfo>>(movieInfoProvider(item.externalId), (_, next) {
+      final runtime = next.maybeWhen<int?>(data: (i) => i.runtime, orElse: () => null);
+      if (runtime != null && item.runtime == null) {
+        ref.read(databaseProvider).saveMeta(item.id, runtime: runtime);
+      }
+    });
+
+    final runtime = loaded?.runtime ?? item.runtime;
     final certification = loaded?.certification;
+    final release = loaded?.releaseDate;
+    final country = loaded?.releaseCountry;
+    final language = loaded?.language;
+    final status = loaded?.status;
     final score = loaded?.voteAverage;
     final hasScore = score != null && score > 0 && (loaded?.voteCount ?? 0) > 0;
     final tagline = loaded?.tagline;
     final directors = loaded?.directors ?? const <String>[];
+    final writers = loaded?.writers ?? const <String>[];
     final cast = loaded?.cast ?? const <CastMember>[];
+    final similar = loaded?.similar ?? const [];
 
-    final meta = [
-      if (item.year != null) '${item.year}',
-      if (runtime != null) _runtime(runtime),
+    final line1 = [
       if (certification != null) certification,
+      if (runtime != null) formatMinutes(runtime),
     ].join(' · ');
+    final line2 = [
+      if (release != null)
+        (country == null ? formatDate(release) : '${formatDate(release)} ($country)'),
+      if (language != null) language,
+      if (status != null) status,
+    ].join(' · ');
+
     final genres = item.genres.isEmpty ? <String>[] : item.genres.split(',');
     final overview = item.overview;
 
@@ -54,44 +69,19 @@ class MovieDetailView extends ConsumerWidget {
           DetailHeader(item: item),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.paddingOf(context).bottom),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: Text(item.title, style: text.headlineMedium)),
-                      const SizedBox(width: 12),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: StatusMenuButton(item: item, choices: _choices),
-                      ),
-                    ],
+                  TitleRow(
+                    title: item.title,
+                    year: item.year,
+                    trailing: WatchTick(item: item),
                   ),
-                  if (hasScore || meta.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Row(
-                        children: [
-                          if (hasScore) ...[
-                            ScoreBadge(value: score, outOf: 10),
-                            const SizedBox(width: 12),
-                          ],
-                          Expanded(child: Text(meta, style: text.bodyLarge)),
-                        ],
-                      ),
-                    ),
-                  if (tagline != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        tagline,
-                        style: text.bodyLarge?.copyWith(fontStyle: FontStyle.italic),
-                      ),
-                    ),
+                  const SizedBox(height: 12),
+                  MetaBlock(score: hasScore ? score : null, lines: [line1, line2]),
                   if (genres.isNotEmpty) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
                     Wrap(
                       spacing: 8,
                       runSpacing: 4,
@@ -101,6 +91,15 @@ class MovieDetailView extends ConsumerWidget {
                       ],
                     ),
                   ],
+                  // WatchNowSection(options: loaded?.watch),
+                  if (tagline != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 20),
+                      child: Text(
+                        tagline,
+                        style: text.bodyLarge?.copyWith(fontStyle: FontStyle.italic),
+                      ),
+                    ),
                   if (overview != null && overview.isNotEmpty) ...[
                     const SizedBox(height: 20),
                     Text('Overview', style: text.titleMedium),
@@ -108,22 +107,38 @@ class MovieDetailView extends ConsumerWidget {
                     Text(overview, style: text.bodyLarge),
                   ],
                   LoadNote(state: info, what: 'cast and ratings'),
-                  if (directors.isNotEmpty) ...[
+                  if (directors.isNotEmpty || writers.isNotEmpty) ...[
                     const SizedBox(height: 20),
-                    Text(
-                      directors.length == 1 ? 'Director' : 'Directors',
-                      style: text.titleMedium,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (directors.isNotEmpty)
+                          Expanded(
+                            child: CreditBlock(
+                              label: directors.length == 1 ? 'Director' : 'Directors',
+                              names: directors,
+                            ),
+                          ),
+                        if (writers.isNotEmpty)
+                          Expanded(
+                            child: CreditBlock(
+                              label: writers.length == 1 ? 'Writer' : 'Writers',
+                              names: writers,
+                            ),
+                          ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(directors.join(', '), style: text.bodyLarge),
                   ],
                   if (cast.isNotEmpty) ...[
-                    const SizedBox(height: 20),
+                    const SectionDivider(),
                     Text('Cast', style: text.titleMedium),
                     const SizedBox(height: 8),
                     CastRow(cast: cast),
                   ],
-                  SimilarRow(type: MediaType.movie, items: loaded?.similar ?? const []),
+                  if (similar.isNotEmpty) ...[
+                    const SectionDivider(bottom: 0),
+                    SimilarRow(type: MediaType.movie, items: similar),
+                  ],
                 ],
               ),
             ),

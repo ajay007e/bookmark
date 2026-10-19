@@ -36,17 +36,26 @@ class EpisodeInfo {
     required this.number,
     this.title,
     this.airDate,
+    this.runtime,
   });
 
   final int season;
   final int number;
   final String? title;
   final DateTime? airDate;
+  final int? runtime; // minutes
 }
 
 class SeriesDetails {
-  const SeriesDetails({required this.genres, required this.episodes});
+  const SeriesDetails({
+    required this.genres,
+    required this.episodes,
+    this.runtime,
+    this.ongoing,
+  });
 
   final String genres;
   final List<EpisodeInfo> episodes;
+  final int? runtime; // typical episode length, minutes
+  final bool? ongoing; // null = unknown
 }

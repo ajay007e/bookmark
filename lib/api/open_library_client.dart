@@ -112,9 +112,57 @@ class OpenLibraryClient {
     return out;
   }
 
-  /// Description, average rating and subjects for the book detail page.
+  static const _languages = {
+    'eng': 'English', 'fre': 'French', 'fra': 'French', 'ger': 'German',
+    'deu': 'German', 'spa': 'Spanish', 'ita': 'Italian', 'por': 'Portuguese',
+    'rus': 'Russian', 'jpn': 'Japanese', 'chi': 'Chinese', 'zho': 'Chinese',
+    'dut': 'Dutch', 'nld': 'Dutch', 'swe': 'Swedish', 'nor': 'Norwegian',
+    'dan': 'Danish', 'fin': 'Finnish', 'pol': 'Polish', 'tur': 'Turkish',
+    'ara': 'Arabic', 'heb': 'Hebrew', 'hin': 'Hindi', 'kor': 'Korean',
+    'lat': 'Latin', 'gre': 'Greek', 'ell': 'Greek', 'cze': 'Czech',
+    'hun': 'Hungarian', 'ukr': 'Ukrainian',
+  };
+
+  /// Language, publisher and page count of the most prominent English edition.
+  /// Best effort: any failure gives empty values.
+  Future<({String? language, String? publisher, int? pages})> _edition(
+      String key,
+      ) async {
+    try {
+      final res = await _dio.get('$key/editions.json', queryParameters: {'limit': 30});
+      final entries = ((res.data['entries'] as List?) ?? const [])
+          .cast<Map<String, dynamic>>();
+
+      bool english(Map<String, dynamic> e) => ((e['languages'] as List?) ?? const [])
+          .any((l) => (l as Map)['key'] == '/languages/eng');
+      bool hasPublisher(Map<String, dynamic> e) =>
+          ((e['publishers'] as List?) ?? const []).isNotEmpty;
+
+      final pick = entries.where((e) => english(e) && hasPublisher(e)).firstOrNull ??
+          entries.where(hasPublisher).firstOrNull ??
+          entries.firstOrNull;
+      if (pick == null) return (language: null, publisher: null, pages: null);
+
+      final langs = (pick['languages'] as List?) ?? const [];
+      final code = langs.isEmpty
+          ? null
+          : ((langs.first as Map)['key'] as String?)?.split('/').last;
+      final publishers = (pick['publishers'] as List?) ?? const [];
+
+      return (
+      language: code == null ? null : (_languages[code] ?? code.toUpperCase()),
+      publisher: publishers.isEmpty ? null : '${publishers.first}',
+      pages: (pick['number_of_pages'] as num?)?.toInt(),
+      );
+    } catch (_) {
+      return (language: null, publisher: null, pages: null);
+    }
+  }
+
+  /// Description, rating, subjects, language and publisher for the book page.
   /// [key] is the work key we store, for example "/works/OL45883W".
   Future<BookInfo> bookInfo(String key) async {
+    final editionFuture = _edition(key); // runs alongside, never throws
     final work = (await _dio.get('$key.json')).data as Map<String, dynamic>;
 
     // The rating is a bonus, so a failure here must not break the page.
@@ -133,11 +181,15 @@ class OpenLibraryClient {
         .take(8)
         .toList();
 
+    final edition = await editionFuture;
     return BookInfo(
       description: _description(work['description']),
       ratingAverage: average,
       ratingCount: count,
       subjects: subjects,
+      language: edition.language,
+      publisher: edition.publisher,
+      pages: edition.pages,
     );
   }
 

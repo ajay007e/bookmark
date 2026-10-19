@@ -2,28 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/detail_info.dart';
+import '../api/search_result.dart';
 import '../data/app_database.dart';
 import '../providers.dart';
-import '../api/search_result.dart';
-import 'widgets/similar_row.dart';
 import 'widgets/detail_header.dart';
 import 'widgets/drop_sheet.dart';
 import 'widgets/load_note.dart';
-import 'widgets/score_badge.dart';
-import 'widgets/status_menu.dart';
+import 'widgets/meta_block.dart';
+import 'widgets/section_divider.dart';
+import 'widgets/similar_row.dart';
+import 'widgets/title_row.dart';
+import 'widgets/watch_tick.dart';
 
 class BookDetailView extends ConsumerWidget {
   const BookDetailView({super.key, required this.item});
 
   final MediaItem item;
-
-  Future<void> _pickStatus(BuildContext context, WidgetRef ref, Status s) async {
-    if (s == Status.dropped) {
-      await _editDrop(context, ref);
-    } else {
-      await ref.read(databaseProvider).setStatus(item.id, s);
-    }
-  }
 
   /// Opens the reason and page sheet. Cancelling changes nothing.
   Future<void> _editDrop(BuildContext context, WidgetRef ref) async {
@@ -43,14 +37,21 @@ class BookDetailView extends ConsumerWidget {
     final text = Theme.of(context).textTheme;
     final info = ref.watch(bookInfoProvider(item.externalId));
     final loaded = info.maybeWhen<BookInfo?>(data: (i) => i, orElse: () => null);
+    final similar = ref
+        .watch(bookSimilarProvider(
+        (key: item.externalId, title: item.title, author: item.author)))
+        .maybeWhen<List<SearchResult>>(data: (l) => l, orElse: () => const []);
 
     final average = loaded?.ratingAverage;
     final hasScore = average != null && average > 0 && (loaded?.ratingCount ?? 0) > 0;
 
-    final pages = item.pageCount;
-    final meta = [
-      if (item.year != null) '${item.year}',
+    final pages = item.pageCount ?? loaded?.pages;
+    final language = loaded?.language;
+    final publisher = loaded?.publisher;
+    final line = [
       if (pages != null && pages > 0) '$pages pages',
+      if (language != null) language,
+      if (publisher != null) publisher,
     ].join(' · ');
 
     final subjects = (loaded != null && loaded.subjects.isNotEmpty)
@@ -58,10 +59,6 @@ class BookDetailView extends ConsumerWidget {
         : (item.genres.isEmpty ? <String>[] : item.genres.split(','));
     final description = loaded?.description ?? item.overview;
     final author = item.author;
-    final similar = ref
-        .watch(bookSimilarProvider(
-        (key: item.externalId, title: item.title, author: item.author)))
-        .maybeWhen<List<SearchResult>>(data: (l) => l, orElse: () => const []);
 
     return Scaffold(
       body: CustomScrollView(
@@ -69,43 +66,26 @@ class BookDetailView extends ConsumerWidget {
           DetailHeader(item: item),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.paddingOf(context).bottom),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: Text(item.title, style: text.headlineMedium)),
-                      const SizedBox(width: 12),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: StatusMenuButton(
-                          item: item,
-                          choices: Status.values, // want, reading, read, did not complete
-                          onStatus: (s) => _pickStatus(context, ref, s),
-                        ),
-                      ),
-                    ],
+                  TitleRow(
+                    title: item.title,
+                    year: item.year,
+                    trailing: WatchTick(item: item),
                   ),
                   if (author != null && author.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text('by $author', style: text.titleMedium),
                     ),
-                  if (hasScore || meta.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Row(
-                        children: [
-                          if (hasScore) ...[
-                            ScoreBadge(value: average, outOf: 5),
-                            const SizedBox(width: 12),
-                          ],
-                          Expanded(child: Text(meta, style: text.bodyLarge)),
-                        ],
-                      ),
-                    ),
+                  const SizedBox(height: 12),
+                  MetaBlock(
+                    score: hasScore ? average : null,
+                    outOf: 5,
+                    lines: [line],
+                  ),
                   if (item.status == Status.dropped) ...[
                     const SizedBox(height: 16),
                     _DroppedCard(
@@ -132,7 +112,10 @@ class BookDetailView extends ConsumerWidget {
                     Text(description, style: text.bodyLarge),
                   ],
                   LoadNote(state: info, what: 'book details'),
-                  SimilarRow(type: MediaType.book, items: similar),
+                  if (similar.isNotEmpty) ...[
+                    const SectionDivider(bottom: 0),
+                    SimilarRow(type: MediaType.book, items: similar),
+                  ],
                 ],
               ),
             ),

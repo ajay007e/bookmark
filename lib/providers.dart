@@ -89,3 +89,11 @@ final bookSimilarProvider = FutureProvider.family<List<SearchResult>, BookKey>(
   },
   retry: (count, error) => null,
 );
+
+typedef SeasonKey = ({String tmdbId, int season});
+
+/// One season's posters, episode images, ratings and descriptions from TMDB.
+final seasonDetailProvider = FutureProvider.family<SeasonDetail, SeasonKey>(
+      (ref, k) => ref.watch(tmdbProvider).seasonDetail(k.tmdbId, k.season),
+  retry: (count, error) => null,
+);

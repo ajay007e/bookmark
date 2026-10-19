@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../data/app_database.dart';
 import '../providers.dart';
 import 'search_screen.dart';
+import 'series_actions.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/poster_card.dart';
 
@@ -125,19 +126,26 @@ class _HeroCarouselState extends State<_HeroCarousel> {
   }
 }
 
-class _HeroCard extends StatelessWidget {
+class _HeroCard extends ConsumerWidget {
   const _HeroCard({required this.item});
 
   final MediaItem item;
 
-  String get _subtitle {
-    if (item.type == MediaType.book) return 'Reading';
-    return item.status == Status.done ? 'New episode available' : 'Watching';
-  }
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
+
+    var subtitle = 'Reading';
+    if (item.type == MediaType.series) {
+      final eps = ref
+          .watch(episodesProvider(item.id))
+          .maybeWhen<List<Episode>>(data: (l) => l, orElse: () => const <Episode>[]);
+      final now = DateTime.now();
+      final hasNew = item.status == Status.done ||
+          eps.any((e) =>
+          !e.watched && isAired(e, now) && e.airDate!.isAfter(item.lastActivityAt));
+      subtitle = hasNew ? 'New episode available' : 'Watching';
+    }
 
     return GestureDetector(
       onTap: () => context.push('/item/${item.id}'),
@@ -170,7 +178,7 @@ class _HeroCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _subtitle,
+                      subtitle,
                       style: text.titleSmall?.copyWith(color: Colors.white70),
                     ),
                     const SizedBox(height: 4),
