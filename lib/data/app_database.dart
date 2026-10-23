@@ -271,6 +271,80 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  // ---------- Background refresh ----------
+
+  Future<List<MediaItem>> allSeries() => (select(mediaItems)
+    ..where((t) => t.type.equalsValue(MediaType.series)))
+      .get();
+
+  /// Saves fresh TMDB data for one series, in a single transaction:
+  /// - new episodes are inserted
+  /// - existing episodes get a new title, air date or runtime (a missing
+  ///   value from TMDB never erases what is saved)
+  /// - genres, runtime and the ongoing flag are updated
+  /// - the series status is recalculated (a Watched series with new aired
+  ///   episodes goes back to Watching)
+  /// `watched`, `watchedAt` and `lastActivityAt` are never touched.
+  /// Returns how many new episodes were added.
+  Future<int> applySeriesRefresh(
+      int seriesId, {
+        required String genres,
+        int? runtime,
+        bool? ongoing,
+        required List<EpisodesCompanion> fresh,
+      }) =>
+      transaction(() async {
+        final saved = {
+          for (final e in await episodesOf(seriesId))
+            (e.seasonNumber, e.episodeNumber): e,
+        };
+
+        final toAdd = <EpisodesCompanion>[];
+        final toUpdate = <int, EpisodesCompanion>{};
+        for (final c in fresh) {
+          final old = saved[(c.seasonNumber.value, c.episodeNumber.value)];
+          if (old == null) {
+            toAdd.add(c);
+            continue;
+          }
+          final newTitle = c.title.value ?? old.title;
+          final newAir = c.airDate.value ?? old.airDate;
+          final newRuntime = c.runtime.value ?? old.runtime;
+          if (newTitle != old.title ||
+              newAir != old.airDate ||
+              newRuntime != old.runtime) {
+            toUpdate[old.id] = EpisodesCompanion(
+              title: Value(newTitle),
+              airDate: Value(newAir),
+              runtime: Value(newRuntime),
+            );
+          }
+        }
+
+        await batch((b) {
+          b.insertAll(episodes, toAdd, mode: InsertMode.insertOrIgnore);
+          toUpdate.forEach((id, companion) {
+            b.update(episodes, companion, where: (e) => e.id.equals(id));
+          });
+        });
+
+        await (update(mediaItems)..where((t) => t.id.equals(seriesId))).write(
+          MediaItemsCompanion(
+            genres: genres.isEmpty ? const Value.absent() : Value(genres),
+            runtime: runtime == null ? const Value.absent() : Value(runtime),
+            ongoing: ongoing == null ? const Value.absent() : Value(ongoing),
+          ),
+        );
+
+        final ticked = await (select(episodes)
+          ..where((e) => e.seriesId.equals(seriesId) & e.watched.equals(true))
+          ..limit(1))
+            .get();
+        if (ticked.isNotEmpty) await _refreshSeriesStatus(seriesId, touch: false);
+
+        return toAdd.length;
+      });
+
   // ---------- Home screen ----------
 
   /// Books being read, movies being watched, and series you are watching that

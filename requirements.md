@@ -13,16 +13,25 @@ No login or accounts. All data lives in a local database on the phone.
 ## Stack
 - Flutter (Android only), Dart package name `bookmark`, app display name "Bookmark"
 - Drift (SQLite) for the local database, with drift_flutter. Schema version 2.
+  (Drift's SQLite is not visible in Android Studio's Database Inspector, so test through logs or in-app helpers.)
 - flutter_riverpod for state
 - go_router for navigation (item detail screens)
 - cached_network_image for posters and covers
 - dio for API calls
 - url_launcher for the "Watch now" links
-- Planned: workmanager (new-episode checks)
+- workmanager for the daily new-episode check
+- flutter_local_notifications for new-episode notifications
+- shared_preferences (`SharedPreferencesAsync`, safe to use from the app and the worker) for the last-check time
 - Data sources: TMDB (movies, series, episodes, streaming availability; free API key kept in lib/config/secrets.dart, gitignored) and Open Library (books)
 - Streaming availability comes from TMDB's watch-provider data, which is supplied by JustWatch.
   Shown for Australia only (`watchRegion = 'AU'` in tmdb_client.dart) with the credit line
   "Streaming data by JustWatch, via TMDB."
+
+## Android setup
+- `AndroidManifest.xml` has the `POST_NOTIFICATIONS` permission (needed on Android 13+).
+- `android/app/build.gradle.kts` enables core library desugaring
+  (`isCoreLibraryDesugaringEnabled = true` and `coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")`),
+  which flutter_local_notifications needs to build.
 
 ## Statuses
 One enum in code: want, inProgress, done, dropped.
@@ -37,8 +46,10 @@ One enum in code: want, inProgress, done, dropped.
 - The first ticked episode moves it to Watching automatically.
 - A series that is still running (TMDB: Returning Series, In Production, Planned, Pilot) is never
   Watched. It stays Watching, even when every aired episode is ticked. If the show status is not
-  known yet it is treated as running. The status is saved the first time the series page loads.
+  known yet it is treated as running. The status is saved the first time the series page loads
+  and is refreshed by the daily background check.
 - A series that has ended becomes Watched when every aired episode is ticked.
+- A Watched series that gets new aired episodes (from the background check) goes back to Watching.
 - Unticking every episode moves it back to Want to watch.
 - Episodes that have not aired cannot be ticked.
 - Ticking an episode while earlier aired episodes are unticked asks "Mark earlier episodes too?"
@@ -83,6 +94,43 @@ status dropdown.
 - Backup: export everything to a JSON file and import it back (including the watch history)
 - Planned: watch-time statistics from the watch history (counted entries only)
 
+## Background check and notifications
+Code lives in `lib/background/`.
+- **Schedule:** a WorkManager periodic task (`bookmark.episodeCheck`) runs about every 24 hours
+  (first run after 1 hour) when the phone has a network connection. It is registered on every app
+  launch with the `keep` policy, so it is never duplicated. Android decides the exact time.
+  On some phones (OnePlus) background activity may need to be allowed in Apps → Bookmark → Battery.
+- **Worker isolate:** the worker runs in its own isolate. It cannot use Riverpod or the app's open
+  database, so it opens its own `AppDatabase()` connection to the same file and closes it when done.
+  Because of that, open screens may not refresh until reopened.
+- **Refresh (`EpisodeRefresher`):** for every series in the library it fetches TMDB details
+  (`seriesDetails`) and applies them with `AppDatabase.applySeriesRefresh` in one transaction:
+    - new episodes are inserted
+    - existing episodes get a new title, air date or runtime (a missing value never erases saved data)
+    - genres, runtime and the ongoing flag are updated
+    - the series status is recalculated
+    - `watched`, `watchedAt` and `lastActivityAt` are never changed (so the hero can still show
+      "New episode available")
+- **Failures:** each series has its own try/catch, so one failure does not stop the others.
+  The task asks Android to retry only when every series failed.
+- **Last check:** the time of the last successful check is saved as `lastEpisodeCheck`
+  (milliseconds) with `SharedPreferencesAsync`. It only moves forward when no series failed, so a
+  network error never makes an episode be missed (a partial failure can repeat a notification).
+- **Notifications:** one notification per series that is Watching or Watched (not wishlist or
+  dropped) and has unticked episodes that aired after the last check. The first run only records
+  the time and sends nothing. Text: "S2 E5 · Title is out" for one episode, "N new episodes are out"
+  for several. The notification id is the series id, so a newer one replaces the older one.
+- **Image:** a wide, rectangular backdrop (`TmdbClient.seriesBackdrop`, TMDB w780) in Android's
+  big picture style, shown when the notification is expanded. Falls back to the saved poster, then
+  to text only. Image download failures never block the notification.
+- **Tap:** the payload is the series' database id. Tapping opens `/item/:id` on top of Home,
+  both when the app is running (tap handler passed to `initNotifications`) and when the app was
+  closed (launch payload checked after the first frame).
+- **Permission:** the Android 13+ notification permission is requested from the app on launch,
+  never from the worker. Each isolate calls `initNotifications()` itself.
+- **Testing:** use a temporary `debugRewindLastCheck()` (sets the last check to 30 days ago) and
+  `runEpisodeCheckNow()` (runs the task once) before `runApp`, then remove them.
+
 ## Home screen
 1. Hero carousel with large posters (about 60% of the screen height). It only shows things you
    can act on, each with the same round tick used on the detail pages:
@@ -96,7 +144,7 @@ status dropdown.
     - **Movie set to Watching** (only possible by adding it as Watching from the search sheet): a
       tick at the end of the title marks it as watched.
       A series you have watched up to the last aired episode is not shown, even if it is still
-      running. It comes back when new episodes are saved for it (the daily background check will do
+      running. It comes back when new episodes are saved for it (the daily background check does
       that automatically). Tapping the rest of a card opens the item's page.
 2. Recently watched movies and series
 3. Recently read books
@@ -107,7 +155,7 @@ Books, Movies and Series screens.
 Navigation: bottom bar with Home, Books, Movies, Series, Library.
 
 ## Detail pages
-Opened from any poster or hero card (`/item/:id`). All use a large HD poster header that collapses
+Opened from any poster or hero card, or a new-episode notification (`/item/:id`). All use a large HD poster header that collapses
 into the app bar, with a round back button. The title row is "Name (year)" with the tick button on
 the right; the button never makes the row taller than the title.
 - Rating shown as a coloured ring (green 7+/10 or 3.5+/5, amber, red).
@@ -162,8 +210,10 @@ at display time (TMDB w780, Open Library -L).
 - [x] Redesigned detail layouts, Watch now (Australia)
 - [x] Series Details and Episodes tabs (pinned season cards, last watched episode at the top)
 - [x] Home hero as a to-do list: next episode with tick, book and movie ticks, caught-up series hidden
-- [ ] Daily background check for new episodes (workmanager). Also refreshes the saved episode list,
-  since episodes are currently only fetched once when a series is added.
+- [x] Daily background check for new episodes (workmanager): refreshes saved episodes, genres, runtime and ongoing flag
+- [x] New-episode notifications with a wide backdrop image, tap opens the series page
+- [ ] Background check polish (optional, when the library grows): short pause between series for
+  TMDB rate limits, skip long-ended shows, show "last checked" time (needs a schema 3 migration)
 - [ ] Lists and tags screen (Library tab)
 - [ ] JSON export and import (include the watch history)
 - [ ] Watch-time statistics

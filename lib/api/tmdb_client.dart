@@ -380,4 +380,11 @@ class TmdbClient {
       ongoing: showIsOngoing(data['status'] as String?),
     );
   }
+
+  /// Wide backdrop image of a series (used in notifications). Null if none.
+  Future<String?> seriesBackdrop(String id) async {
+    final res = await _dio.get('/tv/$id');
+    final path = res.data['backdrop_path'] as String?;
+    return path == null ? null : 'https://image.tmdb.org/t/p/w780$path';
+  }
 }
