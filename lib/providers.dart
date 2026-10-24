@@ -97,3 +97,31 @@ final seasonDetailProvider = FutureProvider.family<SeasonDetail, SeasonKey>(
       (ref, k) => ref.watch(tmdbProvider).seasonDetail(k.tmdbId, k.season),
   retry: (count, error) => null,
 );
+
+/// Genres in the library with counts, for the Lists segment.
+final genreCountsProvider = StreamProvider<List<({String name, int count})>>(
+      (ref) => ref.watch(databaseProvider).genreCounts(),
+);
+
+/// Everything in the library with one genre.
+final itemsByGenreProvider = StreamProvider.family<List<MediaItem>, String>(
+      (ref, genre) => ref.watch(databaseProvider).byGenre(genre),
+);
+
+/// Every custom list with its item count.
+final listsProvider = StreamProvider<List<({UserList list, int count})>>(
+      (ref) => ref.watch(databaseProvider).listsWithCounts(),
+);
+
+final listProvider = StreamProvider.family<UserList?, int>(
+      (ref, id) => ref.watch(databaseProvider).watchList(id),
+);
+
+final listItemsProvider = StreamProvider.family<List<MediaItem>, int>(
+      (ref, id) => ref.watch(databaseProvider).itemsInList(id),
+);
+
+/// The ids of the lists one item is in.
+final itemListIdsProvider = StreamProvider.family<Set<int>, int>(
+      (ref, itemId) => ref.watch(databaseProvider).listIdsOfItem(itemId),
+);

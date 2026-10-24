@@ -8,6 +8,8 @@ import 'search_screen.dart';
 import 'series_actions.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/poster_card.dart';
+import 'widgets/app_nav_bar.dart';
+import 'widgets/premium_app_bar.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -19,16 +21,16 @@ class HomeScreen extends ConsumerWidget {
     final heroHeight = MediaQuery.sizeOf(context).height * 0.6;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Bookmark'),
-        actions: [
-          IconButton(
-            tooltip: 'Search and add',
-            icon: const Icon(Icons.search),
-            onPressed: () => openSearch(context),
-          ),
-        ],
-      ),
+        appBar: PremiumAppBar(
+          title: 'Bookmark',
+          actions: [
+            AppBarAction(
+              tooltip: 'Search and add',
+              icon: Icons.search_rounded,
+              onPressed: () => openSearch(context),
+            ),
+          ],
+        ),
       body: count.maybeWhen(
         data: (n) => n == 0
             ? EmptyState(
@@ -39,7 +41,7 @@ class HomeScreen extends ConsumerWidget {
           onAction: () => openSearch(context),
         )
             : ListView(
-          padding: const EdgeInsets.only(bottom: 24),
+          padding: EdgeInsets.only(bottom: navBarClearance(context)),
           children: [
             hero.when(
               data: (items) => items.isEmpty

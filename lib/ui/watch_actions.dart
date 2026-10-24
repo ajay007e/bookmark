@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../data/app_database.dart';
 import '../providers.dart';
 import 'series_actions.dart';
+import 'widgets/add_to_list_sheet.dart';
 import 'widgets/drop_sheet.dart';
 
 enum WatchAction {
@@ -14,6 +15,7 @@ enum WatchAction {
   watchedEarlier,
   unwatched,
   didNotComplete,
+  addToList,
   remove,
 }
 
@@ -31,6 +33,7 @@ List<WatchAction> menuFor(MediaItem item, List<Episode> episodes) {
         WatchAction.watchedNow,
         if (!done) WatchAction.watchedEarlier,
         if (done) WatchAction.unwatched,
+        WatchAction.addToList,
         WatchAction.remove,
       ];
     case MediaType.series:
@@ -40,6 +43,7 @@ List<WatchAction> menuFor(MediaItem item, List<Episode> episodes) {
         WatchAction.watchedNow,
         WatchAction.watchedEarlier,
         if (started) WatchAction.unwatched,
+        WatchAction.addToList,
         WatchAction.remove,
       ];
     case MediaType.book:
@@ -50,6 +54,7 @@ List<WatchAction> menuFor(MediaItem item, List<Episode> episodes) {
         if (!done) WatchAction.watchedEarlier,
         if (status != Status.dropped) WatchAction.didNotComplete,
         if (done) WatchAction.unwatched,
+        WatchAction.addToList,
         WatchAction.remove,
       ];
   }
@@ -78,6 +83,8 @@ String actionLabel(MediaItem item, WatchAction a) {
       return book ? 'Mark as unread' : 'Mark as unwatched';
     case WatchAction.didNotComplete:
       return 'Did not complete';
+    case WatchAction.addToList:
+      return 'Add to list';
     case WatchAction.remove:
       return 'Remove from Bookmark';
   }
@@ -96,6 +103,7 @@ IconData actionIcon(WatchAction a) => switch (a) {
   WatchAction.watchedEarlier => Icons.history,
   WatchAction.unwatched => Icons.undo,
   WatchAction.didNotComplete => Icons.block,
+  WatchAction.addToList => Icons.playlist_add,
   WatchAction.remove => Icons.delete_outline,
 };
 
@@ -163,6 +171,8 @@ Future<void> runWatchAction(
         pageCount: item.pageCount,
       );
       if (result != null) await db.setDropped(item.id, result.reason, result.page);
+    case WatchAction.addToList:
+      await showAddToListSheet(context, item);
     case WatchAction.remove:
       final okRemove = await confirmDialog(
         context,

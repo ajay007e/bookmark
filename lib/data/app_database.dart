@@ -415,6 +415,121 @@ class AppDatabase extends _$AppDatabase {
     ..orderBy([(t) => OrderingTerm.desc(t.lastActivityAt)]))
       .watch();
 
+  // ---------- Genres ----------
+
+  /// "Drama, Crime" -> ['Drama', 'Crime'].
+  static List<String> _genresOf(String raw) => raw
+      .split(',')
+      .map((g) => g.trim())
+      .where((g) => g.isNotEmpty)
+      .toList();
+
+  /// Every genre in the library with how many items have it, most common first.
+  Stream<List<({String name, int count})>> genreCounts() =>
+      select(mediaItems).watch().map((all) {
+        final counts = <String, int>{};
+        for (final item in all) {
+          for (final g in _genresOf(item.genres).toSet()) {
+            counts[g] = (counts[g] ?? 0) + 1;
+          }
+        }
+        final list = [
+          for (final e in counts.entries) (name: e.key, count: e.value),
+        ];
+        list.sort((a, b) => b.count != a.count
+            ? b.count.compareTo(a.count)
+            : a.name.compareTo(b.name));
+        return list;
+      });
+
+  /// Movies, series and books that have this exact genre.
+  Stream<List<MediaItem>> byGenre(String genre) => (select(mediaItems)
+    ..orderBy([(t) => OrderingTerm.desc(t.lastActivityAt)]))
+      .watch()
+      .map((all) =>
+      all.where((i) => _genresOf(i.genres).contains(genre)).toList());
+
+  // ---------- Custom lists ----------
+
+  /// Every list with its item count, A to Z.
+  Stream<List<({UserList list, int count})>> listsWithCounts() {
+    final count = listEntries.itemId.count();
+    final query = select(userLists).join([
+      leftOuterJoin(listEntries, listEntries.listId.equalsExp(userLists.id)),
+    ])
+      ..addColumns([count])
+      ..groupBy([userLists.id]);
+
+    return query.watch().map((rows) {
+      final all = [
+        for (final r in rows)
+          (list: r.readTable(userLists), count: r.read(count) ?? 0),
+      ];
+      all.sort((a, b) =>
+          a.list.name.toLowerCase().compareTo(b.list.name.toLowerCase()));
+      return all;
+    });
+  }
+
+  Stream<UserList?> watchList(int id) =>
+      (select(userLists)..where((l) => l.id.equals(id))).watchSingleOrNull();
+
+  /// The items in one list, A to Z.
+  Stream<List<MediaItem>> itemsInList(int listId) {
+    final query = select(mediaItems).join([
+      innerJoin(listEntries, listEntries.itemId.equalsExp(mediaItems.id)),
+    ])
+      ..where(listEntries.listId.equals(listId))
+      ..orderBy([OrderingTerm.asc(mediaItems.title)]);
+    return query
+        .watch()
+        .map((rows) => [for (final r in rows) r.readTable(mediaItems)]);
+  }
+
+  /// The ids of the lists this item is in.
+  Stream<Set<int>> listIdsOfItem(int itemId) => (select(listEntries)
+    ..where((e) => e.itemId.equals(itemId)))
+      .watch()
+      .map((rows) => {for (final r in rows) r.listId});
+
+  /// Returns the new list's id, or null when the name is empty or already used.
+  Future<int?> createList(String name) async {
+    final clean = name.trim();
+    if (clean.isEmpty) return null;
+    final all = await select(userLists).get();
+    if (all.any((l) => l.name.toLowerCase() == clean.toLowerCase())) return null;
+    return into(userLists).insert(UserListsCompanion.insert(name: clean));
+  }
+
+  /// Returns false when the name is empty or used by another list.
+  Future<bool> renameList(int id, String name) async {
+    final clean = name.trim();
+    if (clean.isEmpty) return false;
+    final all = await select(userLists).get();
+    if (all.any((l) => l.id != id && l.name.toLowerCase() == clean.toLowerCase())) {
+      return false;
+    }
+    await (update(userLists)..where((l) => l.id.equals(id)))
+        .write(UserListsCompanion(name: Value(clean)));
+    return true;
+  }
+
+  /// Deletes the list only. Its entries go with it, the items stay.
+  Future<void> deleteList(int id) =>
+      (delete(userLists)..where((l) => l.id.equals(id))).go();
+
+  Future<void> setInList(int listId, int itemId, bool inList) {
+    if (inList) {
+      return into(listEntries).insert(
+        ListEntriesCompanion.insert(listId: listId, itemId: itemId),
+        mode: InsertMode.insertOrIgnore,
+      );
+    }
+    return (delete(listEntries)
+      ..where((e) => e.listId.equals(listId) & e.itemId.equals(itemId)))
+        .go();
+  }
+
   // ---------- Search / add helpers ----------
 
   Future<int?> findId(MediaType type, String externalId) async {

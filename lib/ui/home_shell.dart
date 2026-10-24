@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../data/app_database.dart';
+import 'contents_screen.dart';
 import 'home_screen.dart';
-import 'media_list_screen.dart';
+import 'widgets/app_nav_bar.dart';
+import 'you_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -16,39 +18,42 @@ class _HomeShellState extends State<HomeShell> {
 
   static const _pages = <Widget>[
     HomeScreen(),
-    MediaListScreen(type: MediaType.book),
-    MediaListScreen(type: MediaType.movie),
-    MediaListScreen(type: MediaType.series),
-    _LibraryScreen(),
+    ContentsScreen(),
+    YouScreen(),
+  ];
+
+  static const _items = <AppNavItem>[
+    AppNavItem(
+      label: 'Home',
+      icon: Icons.home_outlined,
+      selectedIcon: Icons.home_rounded,
+    ),
+    AppNavItem(
+      label: 'Contents',
+      icon: Icons.collections_bookmark_outlined,
+      selectedIcon: Icons.collections_bookmark_rounded,
+    ),
+    AppNavItem(
+      label: 'You',
+      icon: Icons.person_outline_rounded,
+      selectedIcon: Icons.person_rounded,
+    ),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // IndexedStack keeps every tab alive, so scroll positions survive.
       body: IndexedStack(index: _index, children: _pages),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: AppNavBar(
+        items: _items,
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book), label: 'Books'),
-          NavigationDestination(icon: Icon(Icons.movie_outlined), selectedIcon: Icon(Icons.movie), label: 'Movies'),
-          NavigationDestination(icon: Icon(Icons.tv_outlined), selectedIcon: Icon(Icons.tv), label: 'Series'),
-          NavigationDestination(icon: Icon(Icons.collections_bookmark_outlined), selectedIcon: Icon(Icons.collections_bookmark), label: 'Library'),
-        ],
+        onSelected: (i) {
+          if (i == _index) return;
+          HapticFeedback.selectionClick();
+          setState(() => _index = i);
+        },
       ),
-    );
-  }
-}
-
-class _LibraryScreen extends StatelessWidget {
-  const _LibraryScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Library')),
-      body: const Center(child: Text('Lists, tags and backup will go here')),
     );
   }
 }

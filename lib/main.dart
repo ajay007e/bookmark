@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'background/background_worker.dart';
 import 'background/notifications.dart';
 import 'router.dart';
+import 'settings/accent_provider.dart';
+import 'settings/theme_provider.dart';
 
 /// The notification payload is the series' database id.
 void openSeriesFromPayload(String? payload) {
@@ -34,20 +36,24 @@ Future<void> main() async {
   }
 }
 
-class BookmarkApp extends StatelessWidget {
+class BookmarkApp extends ConsumerWidget {
   const BookmarkApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+    final seed = ref.watch(accentProvider).color;
+
     return MaterialApp.router(
       title: 'Bookmark',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
+      theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true),
       darkTheme: ThemeData(
-        colorSchemeSeed: Colors.teal,
+        colorSchemeSeed: seed,
         brightness: Brightness.dark,
         useMaterial3: true,
       ),
+      themeMode: themeMode,
       routerConfig: appRouter,
     );
   }
