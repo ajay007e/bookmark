@@ -5,11 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../api/search_result.dart';
 import '../../data/app_database.dart';
 import '../../providers.dart';
-import '../search_screen.dart';
 import 'poster_card.dart';
 
-/// "You may also like". Tap an item you already have to open it,
-/// or tap a new one to add it. As tall as its content.
+/// "You may also like". Tap any item to open its page. Items already in your
+/// library open the saved page and show a small tick.
 class SimilarRow extends ConsumerWidget {
   const SimilarRow({super.key, required this.type, required this.items});
 
@@ -35,12 +34,7 @@ class SimilarRow extends ConsumerWidget {
           if (id != null) {
             context.push('/item/$id');
           } else {
-            showModalBottomSheet<void>(
-              context: context,
-              showDragHandle: true,
-              isScrollControlled: true,
-              builder: (_) => AddSheet(result: r),
-            );
+            context.push('/preview', extra: r);
           }
         },
         child: SizedBox(

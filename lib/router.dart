@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'api/search_result.dart';
 import 'stats/stats_models.dart';
 import 'ui/genre_screen.dart';
 import 'ui/home_shell.dart';
@@ -19,6 +21,17 @@ final appRouter = GoRouter(
       builder: (context, state) => ItemDetailScreen(
         id: int.parse(state.pathParameters['id']!),
       ),
+    ),
+    // An item that is not in the library yet. The search result comes in `extra`.
+    GoRoute(
+      path: '/preview',
+      builder: (context, state) {
+        final result = state.extra;
+        if (result is! SearchResult) {
+          return const Scaffold(body: Center(child: Text('Nothing to show.')));
+        }
+        return ItemDetailScreen.preview(result: result);
+      },
     ),
     // /genre?name=Drama
     GoRoute(

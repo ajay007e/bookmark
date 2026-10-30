@@ -5,15 +5,16 @@ import '../../data/app_database.dart';
 import '../../providers.dart';
 import '../series_actions.dart';
 
+/// Tap = mark the season watched now. Long press = choose now or earlier.
 class SeasonButton extends ConsumerWidget {
   const SeasonButton({
     super.key,
-    required this.seriesId,
+    required this.series,
     required this.all,
     required this.season,
   });
 
-  final int seriesId;
+  final MediaItem series;
   final List<Episode> all; // every episode of the series
   final List<Episode> season; // only this season's episodes
 
@@ -27,13 +28,29 @@ class SeasonButton extends ConsumerWidget {
 
     if (todo.isNotEmpty) {
       return FilledButton.tonalIcon(
-        onPressed: () => tickEpisodes(
+        onPressed: () => markEpisodes(
           context,
           ref,
-          seriesId: seriesId,
+          series: series,
           all: all,
           targets: todo,
         ),
+        onLongPress: () async {
+          final n = todo.length;
+          final counted = await askNowOrEarlier(
+            context,
+            title: 'Mark $n episode${n == 1 ? '' : 's'} as watched',
+          );
+          if (counted == null || !context.mounted) return;
+          await markEpisodes(
+            context,
+            ref,
+            series: series,
+            all: all,
+            targets: todo,
+            counted: counted,
+          );
+        },
         icon: const Icon(Icons.done_all),
         label: const Text('Mark season as watched'),
       );
@@ -48,7 +65,7 @@ class SeasonButton extends ConsumerWidget {
           message: 'All ${watched.length} watched episodes in this season will be unticked.',
           yes: 'Unmark',
         );
-        if (ok) await db.setEpisodesWatched(seriesId, watched.map((e) => e.id), false);
+        if (ok) await db.setEpisodesWatched(series.id, watched.map((e) => e.id), false);
       },
       icon: const Icon(Icons.undo),
       label: const Text('Mark season as unwatched'),

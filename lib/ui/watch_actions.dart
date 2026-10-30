@@ -3,59 +3,113 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/app_database.dart';
+import '../data/labels.dart';
+import '../data/mark_queries.dart';
 import '../providers.dart';
+import 'draft_item.dart';
 import 'series_actions.dart';
 import 'widgets/add_to_list_sheet.dart';
 import 'widgets/drop_sheet.dart';
 
 enum WatchAction {
-  wishlist,
-  reading,
+  watching, // Watching (movies: disabled) or Reading (books)
   watchedNow,
   watchedEarlier,
-  unwatched,
+  backToWant, // movies and books: confirmation, deletes the history
+  unwatched, // series only: untick every episode
   didNotComplete,
   addToList,
   remove,
 }
 
-/// Unknown counts as ongoing until TMDB tells us otherwise.
-bool _isOngoing(MediaItem item) => item.ongoing ?? true;
+/// One row in the long-press / "more" sheet. Unsupported rows are disabled.
+class MenuEntry {
+  const MenuEntry(this.action, {this.enabled = true, this.note});
 
-/// The long-press menu for this item.
-List<WatchAction> menuFor(MediaItem item, List<Episode> episodes) {
-  final status = item.status;
-  final done = status == Status.done;
+  final WatchAction action;
+  final bool enabled;
+  final String? note; // small grey line under the title
+}
+
+/// The long-press / "more" menu for this item.
+List<MenuEntry> menuFor(MediaItem item, List<Episode> episodes) {
   switch (item.type) {
     case MediaType.movie:
-      return [
-        if (status != Status.want) WatchAction.wishlist,
-        WatchAction.watchedNow,
-        if (!done) WatchAction.watchedEarlier,
-        if (done) WatchAction.unwatched,
-        WatchAction.addToList,
-        WatchAction.remove,
+      if (item.isDraft) {
+        return const [
+          MenuEntry(WatchAction.watchedNow),
+          MenuEntry(WatchAction.watchedEarlier),
+          MenuEntry(WatchAction.addToList),
+        ];
+      }
+      if (item.status == Status.done) {
+        return const [
+          MenuEntry(WatchAction.watchedNow), // "Watched again now"
+          MenuEntry(WatchAction.addToList),
+          MenuEntry(WatchAction.remove),
+        ];
+      }
+      return const [
+        MenuEntry(WatchAction.watching,
+            enabled: false, note: 'Movies have no Watching status'),
+        MenuEntry(WatchAction.watchedNow),
+        MenuEntry(WatchAction.watchedEarlier),
+        MenuEntry(WatchAction.addToList),
+        MenuEntry(WatchAction.remove),
       ];
-    case MediaType.series:
-      final started = episodes.any((e) => e.watched);
-      return [
-        if (!started && status != Status.want) WatchAction.wishlist,
-        WatchAction.watchedNow,
-        WatchAction.watchedEarlier,
-        if (started) WatchAction.unwatched,
-        WatchAction.addToList,
-        WatchAction.remove,
-      ];
+
     case MediaType.book:
+      if (item.isDraft) {
+        return const [
+          MenuEntry(WatchAction.watching),
+          MenuEntry(WatchAction.watchedNow),
+          MenuEntry(WatchAction.watchedEarlier),
+          MenuEntry(WatchAction.addToList),
+        ];
+      }
+      switch (item.status) {
+        case Status.want:
+        case Status.dropped:
+          return const [
+            MenuEntry(WatchAction.watching),
+            MenuEntry(WatchAction.watchedNow),
+            MenuEntry(WatchAction.watchedEarlier),
+            MenuEntry(WatchAction.addToList),
+            MenuEntry(WatchAction.remove),
+          ];
+        case Status.inProgress:
+          return const [
+            MenuEntry(WatchAction.watchedNow),
+            MenuEntry(WatchAction.watchedEarlier),
+            MenuEntry(WatchAction.didNotComplete),
+            MenuEntry(WatchAction.addToList),
+            MenuEntry(WatchAction.remove),
+          ];
+        case Status.done:
+          return const [
+            MenuEntry(WatchAction.watchedNow), // "Read again now"
+            MenuEntry(WatchAction.addToList),
+            MenuEntry(WatchAction.remove),
+          ];
+      }
+
+    case MediaType.series:
+      final now = DateTime.now();
+      final canMark = episodes.any((e) => !e.watched && isAired(e, now));
+      final started = episodes.any((e) => e.watched);
+      final markNote = canMark
+          ? null
+          : (started ? "You're up to date" : 'Nothing has aired yet');
       return [
-        if (status != Status.want) WatchAction.wishlist,
-        if (status != Status.inProgress) WatchAction.reading,
-        WatchAction.watchedNow,
-        if (!done) WatchAction.watchedEarlier,
-        if (status != Status.dropped) WatchAction.didNotComplete,
-        if (done) WatchAction.unwatched,
-        WatchAction.addToList,
-        WatchAction.remove,
+        const MenuEntry(WatchAction.addToList),
+        MenuEntry(WatchAction.watchedNow, enabled: canMark, note: markNote),
+        MenuEntry(WatchAction.watchedEarlier, enabled: canMark, note: markNote),
+        MenuEntry(
+          WatchAction.unwatched,
+          enabled: started,
+          note: started ? null : 'No episode is marked yet',
+        ),
+        MenuEntry(WatchAction.remove, enabled: !item.isDraft),
       ];
   }
 }
@@ -63,24 +117,21 @@ List<WatchAction> menuFor(MediaItem item, List<Episode> episodes) {
 String actionLabel(MediaItem item, WatchAction a) {
   final book = item.type == MediaType.book;
   final series = item.type == MediaType.series;
-  final done = item.status == Status.done;
+  final done = item.status == Status.done && !item.isDraft;
   switch (a) {
-    case WatchAction.wishlist:
-      return book ? 'Want to read' : 'Add to wishlist';
-    case WatchAction.reading:
-      return 'Reading';
+    case WatchAction.watching:
+      return book ? 'Reading' : 'Watching';
     case WatchAction.watchedNow:
+      if (series) return 'Mark aired episodes watched now';
       if (book) return done ? 'Read again now' : 'Read now';
-      if (series) {
-        return _isOngoing(item) ? 'Aired episodes watched now' : 'Watched now';
-      }
       return done ? 'Watched again now' : 'Watched now';
     case WatchAction.watchedEarlier:
-      if (book) return 'Read earlier';
-      if (series && _isOngoing(item)) return 'Aired episodes watched earlier';
-      return 'Watched earlier';
+      if (series) return 'Mark aired episodes watched earlier';
+      return book ? 'Read earlier' : 'Watched earlier';
+    case WatchAction.backToWant:
+      return book ? 'Back to Want to read' : 'Back to Want to watch';
     case WatchAction.unwatched:
-      return book ? 'Mark as unread' : 'Mark as unwatched';
+      return 'Mark all episodes unwatched';
     case WatchAction.didNotComplete:
       return 'Did not complete';
     case WatchAction.addToList:
@@ -97,45 +148,142 @@ String? actionHint(WatchAction a) => switch (a) {
 };
 
 IconData actionIcon(WatchAction a) => switch (a) {
-  WatchAction.wishlist => Icons.bookmark_add_outlined,
-  WatchAction.reading => Icons.auto_stories_outlined,
+  WatchAction.watching => Icons.play_circle_outline,
   WatchAction.watchedNow => Icons.check_circle_outline,
   WatchAction.watchedEarlier => Icons.history,
+  WatchAction.backToWant => Icons.bookmark_add_outlined,
   WatchAction.unwatched => Icons.undo,
   WatchAction.didNotComplete => Icons.block,
   WatchAction.addToList => Icons.playlist_add,
   WatchAction.remove => Icons.delete_outline,
 };
 
-/// Runs one option from the long-press menu.
-Future<void> runWatchAction(
+/// Opens the long-press / "more" sheet and runs the chosen option.
+Future<void> showWatchMenu(
     BuildContext context,
     WidgetRef ref,
     MediaItem item,
+    List<Episode> episodes,
+    ) async {
+  final entries = menuFor(item, episodes);
+
+  final picked = await showModalBottomSheet<WatchAction>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final text = Theme.of(sheetContext).textTheme;
+      final scheme = Theme.of(sheetContext).colorScheme;
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.titleMedium,
+                  ),
+                  Text(
+                    item.isDraft
+                        ? 'Not in your library yet'
+                        : 'Status: ${statusLabel(item.type, item.status)}',
+                    style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            for (final e in entries)
+              ListTile(
+                enabled: e.enabled,
+                leading: Icon(
+                  actionIcon(e.action),
+                  color: (e.action == WatchAction.remove && e.enabled)
+                      ? scheme.error
+                      : null,
+                ),
+                title: Text(
+                  actionLabel(item, e.action),
+                  style: (e.action == WatchAction.remove && e.enabled)
+                      ? TextStyle(color: scheme.error)
+                      : null,
+                ),
+                subtitle: (e.note ?? actionHint(e.action)) == null
+                    ? null
+                    : Text(e.note ?? actionHint(e.action)!),
+                onTap: e.enabled ? () => Navigator.of(sheetContext).pop(e.action) : null,
+              ),
+          ],
+        ),
+      );
+    },
+  );
+
+  if (picked != null && context.mounted) {
+    await runWatchAction(context, ref, item, picked, episodes: episodes);
+  }
+}
+
+/// Saves an item that is not in the library yet (as Want) and returns it.
+Future<MediaItem?> _saveDraft(WidgetRef ref, MediaItem draft) async {
+  final db = ref.read(databaseProvider);
+  await ref.read(repositoryProvider).add(resultFromDraft(draft), Status.want);
+  final id = await db.findId(draft.type, draft.externalId);
+  if (id == null) return null;
+  return db.watchItem(id).first;
+}
+
+/// Runs one option from the menu. An item that is not saved yet is saved first.
+Future<void> runWatchAction(
+    BuildContext context,
+    WidgetRef ref,
+    MediaItem original,
     WatchAction action, {
       List<Episode> episodes = const [],
     }) async {
   final db = ref.read(databaseProvider);
   final router = GoRouter.of(context);
   final messenger = ScaffoldMessenger.of(context);
-  final book = item.type == MediaType.book;
+
+  var item = original;
+  var eps = episodes;
+  if (original.isDraft) {
+    try {
+      final saved = await _saveDraft(ref, original);
+      if (saved == null) return;
+      item = saved;
+      if (item.type == MediaType.series) eps = await db.episodesOf(item.id);
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Could not add it. Check your connection and try again.'),
+      ));
+      return;
+    }
+    if (!context.mounted) return;
+  }
+
   final series = item.type == MediaType.series;
   final now = DateTime.now();
-  final todo = episodes.where((e) => !e.watched && isAired(e, now)).toList();
-  final started = episodes.any((e) => e.watched);
+  final todo = eps.where((e) => !e.watched && isAired(e, now)).toList();
 
   switch (action) {
-    case WatchAction.wishlist:
-      await db.setStatus(item.id, Status.want);
-    case WatchAction.reading:
+    case WatchAction.watching:
       await db.setStatus(item.id, Status.inProgress);
+
     case WatchAction.watchedNow:
     case WatchAction.watchedEarlier:
       final counted = action == WatchAction.watchedNow;
       if (series) {
         if (todo.isEmpty) {
           messenger.showSnackBar(SnackBar(
-            content: Text(started ? "You're up to date." : 'Nothing has aired yet.'),
+            content: Text(eps.any((e) => e.watched)
+                ? "You're up to date."
+                : 'Nothing has aired yet.'),
           ));
           return;
         }
@@ -148,21 +296,30 @@ Future<void> runWatchAction(
       } else {
         await db.markDone(item, counted: counted);
       }
+
+    case WatchAction.backToWant:
+      final okWant = await confirmDialog(
+        context,
+        title: item.type == MediaType.book
+            ? 'Back to Want to read?'
+            : 'Back to Want to watch?',
+        message:
+        'All history for "${item.title}" will be deleted, and it will no longer count in your stats.',
+        yes: 'Delete history',
+      );
+      if (!okWant) return;
+      await db.resetToWant(item.id);
+
     case WatchAction.unwatched:
       final okUnmark = await confirmDialog(
         context,
-        title: book ? 'Mark as unread?' : 'Mark as unwatched?',
-        message: series
-            ? 'All episodes will be unticked and removed from your watch history.'
-            : 'Your latest ${book ? 'read' : 'watch'} will be removed from your history.',
+        title: 'Mark all episodes unwatched?',
+        message: 'All episodes will be unticked and removed from your watch history.',
         yes: 'Unmark',
       );
       if (!okUnmark) return;
-      if (series) {
-        await db.clearSeriesProgress(item.id);
-      } else {
-        await db.markUnwatched(item.id);
-      }
+      await db.clearSeriesProgress(item.id);
+
     case WatchAction.didNotComplete:
       final result = await showDropSheet(
         context,
@@ -171,8 +328,10 @@ Future<void> runWatchAction(
         pageCount: item.pageCount,
       );
       if (result != null) await db.setDropped(item.id, result.reason, result.page);
+
     case WatchAction.addToList:
       await showAddToListSheet(context, item);
+
     case WatchAction.remove:
       final okRemove = await confirmDialog(
         context,
@@ -186,98 +345,32 @@ Future<void> runWatchAction(
   }
 }
 
-/// A single tap on the tick button.
+/// A single tap on the round tick (movies and books).
+/// Movie: Want -> Watched. Book: Want -> Reading -> Read.
+/// Done -> back to Want (asks first, deletes the history).
+/// Series are never ticked directly: their status follows the episodes.
 Future<void> tapTick(
     BuildContext context,
     WidgetRef ref,
     MediaItem item,
     List<Episode> episodes,
     ) async {
+  if (item.type == MediaType.series) return;
   final db = ref.read(databaseProvider);
-  final messenger = ScaffoldMessenger.of(context);
-  final done = item.status == Status.done;
+  final book = item.type == MediaType.book;
 
-  // Movies and books: one tap = done now. Tap again = undo (asks first).
-  if (item.type != MediaType.series) {
-    if (done) {
-      await runWatchAction(context, ref, item, WatchAction.unwatched);
-    } else {
-      await db.markDone(item, counted: true);
-    }
-    return;
+  switch (item.status) {
+    case Status.want:
+      if (book) {
+        await db.setStatus(item.id, Status.inProgress); // Reading
+      } else {
+        await db.markDone(item, counted: true); // Watched
+      }
+    case Status.inProgress:
+      await db.markDone(item, counted: true); // Read now
+    case Status.dropped:
+      await db.setStatus(item.id, Status.inProgress); // Reading again
+    case Status.done:
+      await runWatchAction(context, ref, item, WatchAction.backToWant);
   }
-
-  // Series
-  if (done) {
-    await runWatchAction(context, ref, item, WatchAction.unwatched,
-        episodes: episodes);
-    return;
-  }
-
-  final now = DateTime.now();
-  final todo = episodes.where((e) => !e.watched && isAired(e, now)).toList();
-  if (todo.isEmpty) {
-    messenger.showSnackBar(SnackBar(
-      content: Text(episodes.any((e) => e.watched)
-          ? "You're up to date."
-          : 'Nothing has aired yet.'),
-    ));
-    return;
-  }
-
-  if (_isOngoing(item)) {
-    // Still running: it stays "Watching", so ask when you watched them.
-    final counted = await _askNowOrEarlier(context, todo.length);
-    if (counted == null) return;
-    await db.setEpisodesWatched(
-      item.id,
-      todo.map((e) => e.id),
-      true,
-      counted: counted,
-    );
-  } else {
-    final ok = await confirmDialog(
-      context,
-      title: 'Mark as Watched?',
-      message:
-      '${todo.length} aired episode${todo.length == 1 ? '' : 's'} will be marked as watched now.',
-      yes: 'Mark all',
-    );
-    if (ok) await db.setEpisodesWatched(item.id, todo.map((e) => e.id), true);
-  }
-}
-
-/// true = watched now, false = watched earlier, null = cancelled.
-Future<bool?> _askNowOrEarlier(BuildContext context, int count) {
-  return showModalBottomSheet<bool>(
-    context: context,
-    showDragHandle: true,
-    builder: (sheetContext) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-            child: Text(
-              'Mark $count aired episode${count == 1 ? '' : 's'} as watched',
-              style: Theme.of(sheetContext).textTheme.titleLarge,
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.check_circle_outline),
-            title: const Text('Watched now'),
-            subtitle: const Text('Counts in your watch time'),
-            onTap: () => Navigator.of(sheetContext).pop(true),
-          ),
-          ListTile(
-            leading: const Icon(Icons.history),
-            title: const Text('Watched earlier'),
-            subtitle: const Text('Not counted in your watch time'),
-            onTap: () => Navigator.of(sheetContext).pop(false),
-          ),
-        ],
-      ),
-    ),
-  );
 }

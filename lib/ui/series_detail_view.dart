@@ -4,11 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/detail_info.dart';
 import '../data/app_database.dart';
 import '../providers.dart';
+import 'draft_item.dart';
+import 'draft_series.dart';
 import 'series_actions.dart';
 import 'widgets/cast_row.dart';
 import 'widgets/credit_block.dart';
 import 'widgets/detail_header.dart';
 import 'widgets/episode_card.dart';
+import 'widgets/item_menu_button.dart';
 import 'widgets/load_note.dart';
 import 'widgets/meta_block.dart';
 import 'widgets/season_button.dart';
@@ -95,16 +98,42 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
     }
   }
 
+  /// Long press on an episode tick: "watched now" or "watched earlier".
+  Future<void> _longPressEpisode(Episode e, List<Episode> eps) async {
+    final counted = await askNowOrEarlier(
+      context,
+      title: 'Mark episode ${e.episodeNumber} as watched',
+    );
+    if (counted == null || !mounted) return;
+    await markEpisodes(
+      context,
+      ref,
+      series: item,
+      all: eps,
+      targets: [e],
+      counted: counted,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final info = ref.watch(seriesInfoProvider(item.externalId));
     final loaded = info.maybeWhen<SeriesInfo?>(data: (i) => i, orElse: () => null);
-    final eps = ref
-        .watch(episodesProvider(item.id))
-        .maybeWhen<List<Episode>>(data: (l) => l, orElse: () => const <Episode>[]);
+
+    // A series that is not saved yet shows episodes fetched from TMDB.
+    final AsyncValue<List<Episode>> epsState = item.isDraft
+        ? ref.watch(draftEpisodesProvider(item.externalId))
+        : ref.watch(episodesProvider(item.id));
+    final eps = epsState.maybeWhen<List<Episode>>(
+      data: (l) => l,
+      orElse: () => const <Episode>[],
+    );
+    // Only used by the Episodes tab to show a spinner or an error for a draft.
+    final AsyncValue<List<Episode>>? draftState = item.isDraft ? epsState : null;
 
     // Older series get their runtime and "still running" flag saved here.
     ref.listen<AsyncValue<SeriesInfo>>(seriesInfoProvider(item.externalId), (_, next) {
+      if (item.isDraft) return;
       final i = next.maybeWhen<SeriesInfo?>(data: (v) => v, orElse: () => null);
       if (i == null) return;
       final newRuntime = (item.runtime == null && i.runtime != null) ? i.runtime : null;
@@ -122,7 +151,7 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
     );
 
     return _tabs.index == 1
-        ? _episodesPage(context, tabBar, loaded, eps)
+        ? _episodesPage(context, tabBar, loaded, eps, draftState)
         : _detailsPage(context, tabBar, info, loaded, eps);
   }
 
@@ -230,6 +259,7 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
       TabBar tabBar,
       SeriesInfo? loaded,
       List<Episode> eps,
+      AsyncValue<List<Episode>>? draftState,
       ) {
     final text = Theme.of(context).textTheme;
     final db = ref.read(databaseProvider);
@@ -253,6 +283,7 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
 
       // Older series saved no episode runtimes. Fill them in once TMDB answers.
       ref.listen<AsyncValue<SeasonDetail>>(seasonDetailProvider(key), (_, state) {
+        if (item.isDraft) return;
         final d = state.maybeWhen<SeasonDetail?>(data: (v) => v, orElse: () => null);
         if (d == null) return;
         final missing =
@@ -277,15 +308,27 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
       });
     }
 
+    final String emptyMessage = (draftState != null && draftState.hasError)
+        ? "Couldn't load the episodes. Check your connection and try again."
+        : 'No episodes were saved for this series.';
+
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
         leading: const RoundBackButton(),
+        actions: [ItemMenuButton(item: item)],
         title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         bottom: tabBar,
       ),
       body: eps.isEmpty
-          ? const Center(child: Text('No episodes were saved for this series.'))
+          ? Center(
+        child: (draftState != null && draftState.isLoading)
+            ? const CircularProgressIndicator()
+            : Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(emptyMessage, textAlign: TextAlign.center),
+        ),
+      )
           : Column(
         children: [
           // The season cards stay here. Only the episodes scroll.
@@ -346,7 +389,7 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
                       ),
                     ),
                     const SizedBox(height: 12),
-                    SeasonButton(seriesId: item.id, all: eps, season: inSeason),
+                    SeasonButton(series: item, all: eps, season: inSeason),
                     const SizedBox(height: 4),
                   ],
                   for (final e in inSeason) ...[
@@ -356,10 +399,10 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
                       detail: detail?.episodes[e.episodeNumber],
                       onToggle: (watched) {
                         if (watched) {
-                          tickEpisodes(
+                          markEpisodes(
                             context,
                             ref,
-                            seriesId: item.id,
+                            series: item,
                             all: eps,
                             targets: [e],
                           );
@@ -367,6 +410,7 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
                           db.setEpisodesWatched(item.id, [e.id], false);
                         }
                       },
+                      onLongPress: () => _longPressEpisode(e, eps),
                     ),
                     const Divider(height: 1),
                   ],

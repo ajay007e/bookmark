@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../api/search_result.dart';
 import '../config/secrets.dart';
 import '../data/app_database.dart';
-import '../data/labels.dart';
 import '../providers.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/poster_card.dart';
@@ -107,20 +107,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
   }
 
-  Future<void> _showAddSheet(SearchResult result) {
-    return showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (_) => AddSheet(result: result),
-    );
+  /// Opens the saved page for items you have, or a page for a new one.
+  void _open(SearchResult r, int? ownedId) {
+    if (ownedId != null) {
+      context.push('/item/$ownedId');
+    } else {
+      context.push('/preview', extra: r);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final owned = ref.watch(itemsByTypeProvider(_type)).maybeWhen(
-      data: (items) => items.map((i) => i.externalId).toSet(),
-      orElse: () => <String>{},
+    // external id -> database id, for the items already in the library
+    final owned = ref.watch(itemsByTypeProvider(_type)).maybeWhen<Map<String, int>>(
+      data: (items) => {for (final i in items) i.externalId: i.id},
+      orElse: () => const <String, int>{},
     );
 
     return Scaffold(
@@ -171,7 +172,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _body(Set<String> owned) {
+  Widget _body(Map<String, int> owned) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return EmptyState(compact: true, title: 'Search problem', message: _error!);
@@ -196,7 +197,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (_, i) {
         final r = _results[i];
-        final added = owned.contains(r.externalId);
+        final ownedId = owned[r.externalId];
         return ListTile(
           leading: SizedBox(
             width: 48,
@@ -208,108 +209,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ),
           title: Text(r.title, maxLines: 2, overflow: TextOverflow.ellipsis),
           subtitle: r.subtitle.isEmpty ? null : Text(r.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-          trailing: added
+          trailing: ownedId != null
               ? const Chip(label: Text('Added'), visualDensity: VisualDensity.compact)
-              : const Icon(Icons.add_circle_outline),
-          onTap: added ? null : () => _showAddSheet(r),
+              : const Icon(Icons.chevron_right),
+          onTap: () => _open(r, ownedId),
         );
       },
-    );
-  }
-}
-
-/// Bottom sheet: pick a status, then add.
-class AddSheet extends ConsumerStatefulWidget {
-  const AddSheet({super.key, required this.result});
-
-  final SearchResult result;
-
-  @override
-  ConsumerState<AddSheet> createState() => _AddSheetState();
-}
-
-class _AddSheetState extends ConsumerState<AddSheet> {
-  Status _status = Status.want;
-  bool _saving = false;
-
-  Future<void> _add() async {
-    final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-    setState(() => _saving = true);
-    try {
-      await ref.read(repositoryProvider).add(widget.result, _status);
-      navigator.pop();
-      messenger.showSnackBar(SnackBar(content: Text('Added "${widget.result.title}"')));
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _saving = false);
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Could not add it. Check your connection and try again.')),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final r = widget.result;
-    final text = Theme.of(context).textTheme;
-    const choices = [Status.want, Status.inProgress, Status.done];
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(r.title, style: text.titleLarge),
-            if (r.subtitle.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(r.subtitle, style: text.bodyMedium),
-              ),
-            const SizedBox(height: 16),
-            Text('Add as', style: text.labelLarge),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final s in choices)
-                  ChoiceChip(
-                    label: Text(statusLabel(r.type, s)),
-                    selected: _status == s,
-                    onSelected: _saving ? null : (_) => setState(() => _status = s),
-                  ),
-              ],
-            ),
-            if (r.type == MediaType.series && _status == Status.done)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Every episode that has already aired will be marked as watched.',
-                  style: text.bodySmall,
-                ),
-              ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _saving ? null : _add,
-                child: _saving
-                    ? const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                    SizedBox(width: 12),
-                    Text('Adding...'),
-                  ],
-                )
-                    : const Text('Add'),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

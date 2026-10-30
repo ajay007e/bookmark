@@ -9,18 +9,21 @@ import 'score_badge.dart';
 import 'tick_circle.dart';
 
 /// image | n. title / rating · date · runtime / description | tick
-/// Tap the text to expand a long description. Tap the tick to mark it.
+/// Tap the text to expand a long description. Tap the tick to mark it watched
+/// now, long press it to choose "watched now" or "watched earlier".
 class EpisodeCard extends StatefulWidget {
   const EpisodeCard({
     super.key,
     required this.episode,
     this.detail,
     required this.onToggle,
+    this.onLongPress,
   });
 
   final Episode episode; // from the database (watched or not)
   final EpisodeDetail? detail; // from TMDB, null while loading or offline
-  final ValueChanged<bool> onToggle; // true = mark watched, false = unmark
+  final ValueChanged<bool> onToggle; // true = mark watched now, false = unmark
+  final VoidCallback? onLongPress; // asks "now or earlier"
 
   @override
   State<EpisodeCard> createState() => _EpisodeCardState();
@@ -131,6 +134,8 @@ class _EpisodeCardState extends State<EpisodeCard> {
                 size: 36,
                 // Episodes that have not aired cannot be ticked.
                 onTap: aired ? () => widget.onToggle(!e.watched) : null,
+                // "Watched now" or "watched earlier" is only asked before marking.
+                onLongPress: (aired && !e.watched) ? widget.onLongPress : null,
               ),
             ),
           ],

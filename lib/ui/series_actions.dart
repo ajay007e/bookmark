@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/app_database.dart';
 import '../providers.dart';
+import 'draft_item.dart';
 
 /// An episode counts as aired when it has a date that is not in the future.
 bool isAired(Episode e, DateTime now) =>
@@ -39,16 +40,49 @@ Future<bool> confirmDialog(
   return ok ?? false;
 }
 
-/// Marks [targets] as watched now. If earlier aired episodes (this season or
-/// earlier seasons) are still unticked, asks whether to tick them too.
-/// Those earlier ones are saved as "watched earlier", so they stay out of
-/// your watch time.
+/// true = watched now, false = watched earlier, null = cancelled.
+Future<bool?> askNowOrEarlier(BuildContext context, {required String title}) {
+  return showModalBottomSheet<bool>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(title, style: Theme.of(sheetContext).textTheme.titleLarge),
+          ),
+          ListTile(
+            leading: const Icon(Icons.check_circle_outline),
+            title: const Text('Watched now'),
+            subtitle: const Text('Counts in your watch time'),
+            onTap: () => Navigator.of(sheetContext).pop(true),
+          ),
+          ListTile(
+            leading: const Icon(Icons.history),
+            title: const Text('Watched earlier'),
+            subtitle: const Text('Not counted in your watch time'),
+            onTap: () => Navigator.of(sheetContext).pop(false),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Marks [targets] as watched. [counted] true = watched now, false = earlier.
+/// If earlier aired episodes (this season or earlier seasons) are still
+/// unticked, asks whether to tick them too. Those earlier ones are always
+/// saved as "watched earlier", so they stay out of your watch time.
 Future<void> tickEpisodes(
     BuildContext context,
     WidgetRef ref, {
       required int seriesId,
       required List<Episode> all,
       required List<Episode> targets,
+      bool counted = true,
     }) async {
   if (targets.isEmpty) return;
   final db = ref.read(databaseProvider);
@@ -97,7 +131,61 @@ Future<void> tickEpisodes(
   if (earlierIds.isNotEmpty) {
     await db.setEpisodesWatched(seriesId, earlierIds, true, counted: false);
   }
-  await db.setEpisodesWatched(seriesId, targetIds, true);
+  await db.setEpisodesWatched(seriesId, targetIds, true, counted: counted);
+}
+
+/// Like [tickEpisodes], but also works for a series that is not saved yet:
+/// it saves the series (as Want, with all its episodes) and then marks the
+/// same episodes in the saved copy.
+Future<void> markEpisodes(
+    BuildContext context,
+    WidgetRef ref, {
+      required MediaItem series,
+      required List<Episode> all,
+      required List<Episode> targets,
+      bool counted = true,
+    }) async {
+  if (!series.isDraft) {
+    return tickEpisodes(
+      context,
+      ref,
+      seriesId: series.id,
+      all: all,
+      targets: targets,
+      counted: counted,
+    );
+  }
+
+  final db = ref.read(databaseProvider);
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await ref.read(repositoryProvider).add(resultFromDraft(series), Status.want);
+  } catch (_) {
+    messenger.showSnackBar(const SnackBar(
+      content: Text('Could not add it. Check your connection and try again.'),
+    ));
+    return;
+  }
+
+  final id = await db.findId(series.type, series.externalId);
+  if (id == null || !context.mounted) return;
+
+  // Match the unsaved episodes with the saved ones by season and number.
+  final saved = await db.episodesOf(id);
+  final wanted = {for (final e in targets) (e.seasonNumber, e.episodeNumber)};
+  final savedTargets = [
+    for (final e in saved)
+      if (wanted.contains((e.seasonNumber, e.episodeNumber))) e,
+  ];
+
+  await tickEpisodes(
+    context,
+    ref,
+    seriesId: id,
+    all: saved,
+    targets: savedTargets,
+    counted: counted,
+  );
 }
 
 /// The episode to watch next: the first aired, unticked episode after the

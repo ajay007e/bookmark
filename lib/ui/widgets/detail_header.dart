@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/app_database.dart';
+import 'item_menu_button.dart';
 import 'poster_card.dart';
 
 /// The round back button shown over posters and in compact app bars.
@@ -42,6 +43,7 @@ class DetailHeader extends StatelessWidget {
       expandedHeight: MediaQuery.sizeOf(context).height * 0.6,
       automaticallyImplyLeading: false,
       leading: const RoundBackButton(),
+      actions: [ItemMenuButton(item: item)],
       bottom: bottom,
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
