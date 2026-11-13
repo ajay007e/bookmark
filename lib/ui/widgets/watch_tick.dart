@@ -9,9 +9,13 @@ import '../watch_actions.dart';
 import 'tick_circle.dart';
 
 /// The round tick next to the title.
-/// - Not in your library: tap adds it to Want, long press shows the options.
-/// - Movie or book: tap moves it along (see [tapTick]), long press shows the options.
-/// - Series: a status icon only. The status follows the episodes.
+/// - Movie not in your library: tap = Watched now (saves it, with Undo).
+///   Long press shows the options.
+/// - Book or series not in your library: tap adds it to Want, long press
+///   shows the options.
+/// - Saved movie or book: tap moves it along (see [tapTick]), long press
+///   shows the options.
+/// - Saved series: a status icon only. The status follows the episodes.
 class WatchTick extends ConsumerStatefulWidget {
   const WatchTick({super.key, required this.item, this.episodes = const []});
 
@@ -53,6 +57,46 @@ class _WatchTickState extends ConsumerState<WatchTick> {
     if (mounted) setState(() => _busy = false);
   }
 
+  /// Unsaved movie: save it and mark it watched now, with an Undo.
+  Future<void> _watchedNow() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final db = ref.read(databaseProvider);
+    final item = widget.item;
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(repositoryProvider).add(resultFromDraft(item), Status.want);
+      final id = await db.findId(item.type, item.externalId);
+      final saved = id == null ? null : await db.watchItem(id).first;
+      if (saved == null) throw StateError('The movie was not saved');
+      await db.markDone(saved, counted: true);
+
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Marked "${item.title}" as watched'),
+            // A snackbar with an action stays until dismissed unless
+            // persist is false. Now it goes away by itself after 5 seconds.
+            persist: false,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Undo',
+              // Removes the movie again, together with its history.
+              onPressed: () => db.deleteItem(saved.id),
+            ),
+          ),
+        );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not add it. Check your connection and try again.'),
+        ),
+      );
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
@@ -70,12 +114,15 @@ class _WatchTickState extends ConsumerState<WatchTick> {
 
     // Not in the library yet
     if (item.isDraft) {
+      final isMovie = item.type == MediaType.movie;
       return Tooltip(
-        message: 'Add to ${statusLabel(item.type, Status.want)}',
+        message: isMovie
+            ? 'Mark as watched'
+            : 'Add to ${statusLabel(item.type, Status.want)}',
         child: TickCircle(
           state: TickState.none,
           size: 40,
-          onTap: _add,
+          onTap: isMovie ? _watchedNow : _add,
           onLongPress: () => showWatchMenu(context, ref, item, widget.episodes),
         ),
       );

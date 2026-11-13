@@ -53,20 +53,25 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             onChanged: (i) => setState(() => _filter = StatsFilter.values[i]),
           ),
           const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          // The four periods share the full width equally.
+          Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                for (final p in StatsPeriod.values)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                for (var i = 0; i < StatsPeriod.values.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  Expanded(
                     child: ChoiceChip(
-                      label: Text(p.label),
-                      selected: p == _period,
-                      onSelected: (_) => setState(() => _period = p),
+                      showCheckmark: false,
+                      padding: EdgeInsets.zero,
+                      labelPadding: EdgeInsets.zero,
+                      label: Center(child: Text(StatsPeriod.values[i].label)),
+                      selected: StatsPeriod.values[i] == _period,
+                      onSelected: (_) =>
+                          setState(() => _period = StatsPeriod.values[i]),
                     ),
                   ),
+                ],
               ],
             ),
           ),

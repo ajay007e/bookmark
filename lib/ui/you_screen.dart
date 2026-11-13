@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../settings/daily_check_provider.dart';
 import '../settings/theme_provider.dart';
 import 'widgets/accent_picker.dart';
 import 'widgets/app_nav_bar.dart';
@@ -45,6 +46,7 @@ class YouScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(themeModeProvider);
+    final dailyCheck = ref.watch(dailyCheckProvider).asData?.value ?? true;
 
     return Scaffold(
       appBar: const PremiumAppBar(title: 'You'),
@@ -96,14 +98,22 @@ class YouScreen extends ConsumerWidget {
             ],
           ),
 
-          const SettingsSection(
+          SettingsSection(
             title: 'New episodes',
             children: [
               SettingsTile(
                 icon: Icons.notifications_active_outlined,
                 title: 'Daily check',
-                subtitle: 'Turn the new-episode check on or off',
-                soon: true,
+                subtitle: dailyCheck
+                    ? 'On: checks about once a day'
+                    : 'Off: no new-episode notifications',
+                trailing: Switch(
+                  value: dailyCheck,
+                  onChanged: (v) =>
+                      ref.read(dailyCheckProvider.notifier).set(v),
+                ),
+                onTap: () =>
+                    ref.read(dailyCheckProvider.notifier).set(!dailyCheck),
               ),
             ],
           ),

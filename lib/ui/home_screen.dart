@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/app_database.dart';
+import '../data/hero_queries.dart';
 import '../providers.dart';
 import 'search_screen.dart';
 import 'series_actions.dart';
@@ -11,6 +12,11 @@ import 'widgets/poster_card.dart';
 import 'widgets/app_nav_bar.dart';
 import 'widgets/premium_app_bar.dart';
 
+/// Movies in Want to watch, shown after the active items in the hero.
+final _wantMoviesHeroProvider = StreamProvider<List<MediaItem>>(
+      (ref) => ref.watch(databaseProvider).wantMoviesForHero(limit: 10),
+);
+
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -18,19 +24,20 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final count = ref.watch(itemCountProvider);
     final hero = ref.watch(heroProvider);
+    final wantMovies = ref.watch(_wantMoviesHeroProvider);
     final heroHeight = MediaQuery.sizeOf(context).height * 0.6;
 
     return Scaffold(
-        appBar: PremiumAppBar(
-          title: 'Bookmark',
-          actions: [
-            AppBarAction(
-              tooltip: 'Search and add',
-              icon: Icons.search_rounded,
-              onPressed: () => openSearch(context),
-            ),
-          ],
-        ),
+      appBar: PremiumAppBar(
+        title: 'Bookmark',
+        actions: [
+          AppBarAction(
+            tooltip: 'Search and add',
+            icon: Icons.search_rounded,
+            onPressed: () => openSearch(context),
+          ),
+        ],
+      ),
       body: count.maybeWhen(
         data: (n) => n == 0
             ? EmptyState(
@@ -44,9 +51,17 @@ class HomeScreen extends ConsumerWidget {
           padding: EdgeInsets.only(bottom: navBarClearance(context)),
           children: [
             hero.when(
-              data: (items) => items.isEmpty
-                  ? const _EmptyHero()
-                  : _HeroCarousel(items: items, height: heroHeight),
+              data: (active) {
+                // Active items first, then Want movies (newest added first).
+                final wanted = wantMovies.maybeWhen<List<MediaItem>>(
+                  data: (l) => l,
+                  orElse: () => const <MediaItem>[],
+                );
+                final items = [...active, ...wanted];
+                return items.isEmpty
+                    ? const _EmptyHero()
+                    : _HeroCarousel(items: items, height: heroHeight);
+              },
               loading: () => SizedBox(
                 height: heroHeight,
                 child: const Center(child: CircularProgressIndicator()),
@@ -150,7 +165,9 @@ class _HeroCard extends ConsumerWidget {
 
     var subtitle = switch (item.type) {
       MediaType.book => 'Reading',
-      MediaType.movie => 'Watching',
+    // Movies in the hero are either Watching (old data) or Want to watch.
+      MediaType.movie =>
+      item.status == Status.want ? 'Want to watch' : 'Watching',
       MediaType.series => 'Up next',
     };
     if (isSeries) {

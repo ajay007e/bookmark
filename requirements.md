@@ -16,7 +16,7 @@ No login or accounts. All data lives in a local database on the phone.
 ## Stack
 
 - Flutter (Android only), Dart package name `bookmark`, app display name "Bookmark"
-- Drift (SQLite) for the local database, with drift_flutter. Schema version 2 (no change for lists, stats or the mark flow).
+- Drift (SQLite) for the local database, with drift_flutter. Schema version 2 for now (Batch 5 moves it to 3).
   (Drift's SQLite is not visible in Android Studio's Database Inspector, so test through logs or in-app helpers.)
 - flutter_riverpod for state
 - go_router for navigation (item, preview, genre, list and stats pages)
@@ -27,7 +27,9 @@ No login or accounts. All data lives in a local database on the phone.
 - workmanager for the daily new-episode check
 - flutter_local_notifications for new-episode notifications
 - shared_preferences (`SharedPreferencesAsync`, safe to use from the app and the worker) for the last-check
-  time, the theme and the accent colour
+  time, the daily check switch, the theme and the accent colour
+- Planned for Batch 4: share_plus and path_provider (JSON export through the Android share sheet).
+  Planned for Batch 6: package_info_plus (real app version).
 - Data sources: TMDB (movies, series, episodes, streaming availability; free API key kept in lib/config/secrets.dart, gitignored) and Open Library (books)
 - Streaming availability comes from TMDB's watch-provider data, which is supplied by JustWatch.
   Shown for Australia only (`watchRegion = 'AU'` in tmdb_client.dart) with the credit line
@@ -35,7 +37,8 @@ No login or accounts. All data lives in a local database on the phone.
 
 ## Android setup
 
-- `AndroidManifest.xml` has the `POST_NOTIFICATIONS` permission (needed on Android 13+).
+- `AndroidManifest.xml` has the app label `Bookmark` (capital B) and the `POST_NOTIFICATIONS` permission
+  (needed on Android 13+).
 - `android/app/build.gradle.kts` enables core library desugaring
   (`isCoreLibraryDesugaringEnabled = true` and `coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")`),
   which flutter_local_notifications needs to build.
@@ -49,7 +52,8 @@ One enum in code: want, inProgress, done, dropped.
 - Books: Want to read, Reading, Read, Did not complete
 - Series are tracked per episode (season number, episode number, watched flag and date)
 - Did not complete books: optional reason and page stopped at
-- Books have no page-progress tracking. Only the stop page is recorded, when a book is not completed.
+- Books have no page-progress tracking yet. Only the stop page is recorded, when a book is not completed.
+  (Progress tracking is planned in Batch 5.)
 
 ### Series status rules
 
@@ -75,26 +79,35 @@ long press on the tick. **Unsupported options are shown disabled** (greyed, with
 
 - **Look of the tick:** grey outline = not started, coloured ring with an icon = Watching/Reading, filled =
   done, red with a block icon = Did not complete. The menu sheet shows the status in words.
+- **Menu wording:** under "Watched now / Read now" the sheet says "Counts in your watch time" (movies and
+  series) or "Counts in your reading stats" (books). Under "Watched earlier / Read earlier" it says
+  "Not counted in your watch time" or "Not counted in your reading stats". The word "watch time" is never
+  used for books.
 - **Not in the library** (opened from a search result or "You may also like"): the page is the normal
-  detail page built from a draft item (negative id, nothing saved yet). Tap the tick = add to Want
-  (saves the item; a series is saved with all its episodes). Long press or "⋮":
-  - Movie: Watched now, Watched earlier, Add to list.
-  - Book: Reading, Read now, Read earlier, Add to list.
-  - Series: Add to list, Mark aired episodes watched now / earlier (Mark all unwatched and Remove are disabled).
-    Any option saves the item first (as Want), then applies. The page then switches to the saved item
+  detail page built from a draft item (negative id, nothing saved yet).
+  - Movie: tap on the tick = Watched now directly (saves the movie, marks it watched now) with an Undo
+    snackbar. The snackbar goes away by itself after 5 seconds and has no close button. Undo deletes the
+    movie again (with its history). Long press or "⋮": Want to watch, Watched earlier, Add to list.
+  - Book: tap on the tick = add to Want to read. Long press or "⋮": Reading, Read now, Read earlier, Add to list.
+  - Series: tap on the tick = add to Want to watch (saved with all its episodes). Long press or "⋮": Add to
+    list, Mark aired episodes watched now / earlier (Mark all unwatched and Remove are disabled).
+  - Any option saves the item first (as Want), then applies. The page then switches to the saved item
     without reloading, so scroll position and tabs stay.
-- **Movie:**
+  - While an unsaved series is being saved, a full-page loading spinner covers the series page
+    (`draftSavingProvider`, `lib/ui/draft_saving.dart`). The previous episode list stays on screen until
+    the saved list is ready, so the page never flickers or shows an empty list.
+- **Movie (saved):**
   - Want: tap = Watched (now). Menu: Watching (disabled, "Movies have no Watching status"), Watched now,
     Watched earlier, Add to list, Remove.
   - Watched: tap = back to Want (asks first, **deletes all history rows** of the movie, so stats drop).
     Menu: Watched again now, Add to list, Remove.
-- **Book:**
+- **Book (saved):**
   - Want: tap = Reading. Reading: tap = Read now. Read: tap = back to Want (asks first, deletes all history).
   - Did not complete: tap = Reading.
   - Menu (Want, Did not complete): Reading, Read now, Read earlier, Add to list, Remove.
     Menu (Reading): Read now, Read earlier, Did not complete, Add to list, Remove.
     Menu (Read): Read again now, Add to list, Remove.
-- **Series:** the tick of a saved series is a disabled status icon (Want / Watching / Watched); the status
+- **Series (saved):** the tick is a disabled status icon (Want / Watching / Watched); the status
   follows the episodes. The "⋮" menu holds: Add to list, Mark aired episodes watched now, Mark aired
   episodes watched earlier, Mark all episodes unwatched (asks first, disabled when nothing is marked),
   Remove (asks first). The two "mark aired" options are disabled when nothing has aired or you are up to date.
@@ -113,9 +126,12 @@ long press on the tick. **Unsupported options are shown disabled** (greyed, with
   "Watched earlier" or "Read earlier" are saved as earlier. Items marked before the history feature have no rows.
 - Runtime is stored when known (movies, series episode length, each episode) so watch time can be
   calculated.
+- **Snackbars** with an action (such as Undo) must always close by themselves (`persist: false`, 5 seconds).
+  No close button.
 - Code: `lib/ui/watch_actions.dart` (menus per type and state, actions, tap cycle),
   `lib/ui/series_actions.dart` (episode marking, now or earlier, unsaved series),
   `lib/ui/draft_item.dart` and `lib/ui/draft_series.dart` (unsaved items and episodes),
+  `lib/ui/draft_saving.dart` (the "saving an unsaved series" flag),
   `lib/data/mark_queries.dart` (back to Want), `lib/ui/widgets/watch_tick.dart`,
   `lib/ui/widgets/item_menu_button.dart`, `lib/ui/widgets/season_button.dart`, `lib/ui/widgets/episode_card.dart`.
 
@@ -123,7 +139,8 @@ long press on the tick. **Unsupported options are shown disabled** (greyed, with
 
 - Searching titles by typing is fine
 - Everything else is selection: ticks, menus, chips, sliders, fixed lists of reasons, colour circles
-- Typing is allowed only as an option where needed (for example a custom stop reason, or a list name)
+- Typing is allowed only as an option where needed (for example a custom stop reason, a list name, or a
+  page count for a book that has none)
 - Details (title, poster, genres, episodes, authors, ratings, cast) come from TMDB / Open Library, not manual entry
 - No personal rating or review. The `rating` column exists in the database but is unused.
 
@@ -158,7 +175,8 @@ search with the current type preselected (hidden on Lists). Movies, Series and B
   chip that opens a scrollable sheet with every genre. Tapping a genre opens `/genre?name=` (all
   movies, series and books with that genre, with type filter chips).
 - Tags are genres only for now.
-- My lists: cards with a poster collage, name and item count, plus a "New list" card.
+- My lists: cards with a poster collage, name and item count. The **"New list" card is always the first
+  card**, before the existing lists.
   A list page (`/list/:id`) shows a poster grid; menu has Rename and Delete; long-press an item to
   remove it from the list (with Undo). Deleting a list never deletes its items. List names are unique
   (ignoring case). Items are shown A to Z (ListEntries has no date column).
@@ -168,33 +186,69 @@ search with the current type preselected (hidden on Lists). Movies, Series and B
 
 One scrolling page: stats on top, then grouped settings.
 
-- **Stats card:** Week / Month / Year / All time selector, watch time, movies, episodes and books, and a
-  "Detailed stats" button.
+- **Stats card:** shows Week by default (watch time, movies, episodes, books). A small pill in the card's
+  top right shows the period (for example "Week ▾") and opens a bottom sheet ("Show stats for") with
+  Week, Month, Year and All time (icon, short description, tick on the chosen one). Tapping the card opens
+  `/stats?period=` with the chosen period. There are no period pills on the card and no "Detailed stats" button.
 - **Appearance:** theme (System / Light / Dark) and accent colour (16 colours in one sideways row).
   Both are saved with SharedPreferencesAsync and applied to the whole app.
-- **New episodes:** daily check switch (placeholder, "Soon"). Will control the workmanager task.
-- **Streaming:** region (placeholder, "Soon"). Fixed to Australia for now.
-- **Backup and data:** Export to JSON and Import from JSON (placeholders, "Soon").
-- **About:** version, and a "Credits and data sources" sheet (TMDB notice, JustWatch line, Open Library).
+- **New episodes:** "Daily check" switch, on by default, saved as `dailyCheckEnabled`
+  (`lib/settings/daily_check_provider.dart`). Turning it off cancels the workmanager task, turning it on
+  schedules it again. The worker also checks the setting before it runs. Tapping the whole row toggles it.
+- **Streaming:** region (placeholder, "Soon"). Fixed to Australia for now. Batch 6 adds a picker.
+- **Backup and data:** Export to JSON (Batch 4) and Import from JSON (Batch 6, placeholder "Soon" until then).
+- **About:** version (hard-coded 1.0.0 until Batch 6), and a "Credits and data sources" sheet (TMDB notice,
+  JustWatch line, Open Library).
 
 ## Stats
 
 - Summary card on the You tab and a detailed page at `/stats?period=`.
 - Views: All, Movies, Series, Books. Periods: Week (from Monday), Month, Year, All time.
+- On the detailed page the four period chips share the full width equally (no empty space on the right).
 - Each view has tiles, an activity chart (days for Week and Month, months for Year, years for All time)
   and top genres (ranked by number of different titles). All also shows movies vs series split.
   Books show book counts, pages read, average pages and most read author.
 - Only WatchLogs rows with counted = true are counted. A rewatch counts again. Books are counted, not
   timed. "Did not complete" is an all-time number.
 - Code: `lib/data/stats_queries.dart` (query), `lib/stats/stats_models.dart` (periods, filters and all
-  the numbers), `lib/stats/stats_provider.dart` (providers), `lib/ui/stats_screen.dart`.
-  `StatsPeriod` is defined only in `stats_models.dart`.
+  the numbers), `lib/stats/stats_provider.dart` (providers), `lib/ui/stats_screen.dart`,
+  `lib/ui/widgets/stats_card.dart`. `StatsPeriod` is defined only in `stats_models.dart`.
+- Planned (Batch 7): a "Window" option. Off (default): Week, Month and Year are the current calendar week,
+  month and year, as today. On: they become rolling ranges ending today: Last 7 days, one calendar month
+  back from today (28, 29, 30 or 31 days), and Last 12 months. All time is the same. Charts stay by day
+  for 7 days and a month, and by month for 12 months. The switch sits in the period sheet on the You card
+  and on the Stats page, is saved in SharedPreferencesAsync, and both screens share the choice.
+- Planned (Batch 5): reading stats (see Reading tracking below).
+
+## Reading tracking (planned, Batch 5, schema 3)
+
+- Per book progress unit: Pages (default when a page count is known) or Percent (default when not; the
+  Kindle mode). Locations are not supported. Switching unit converts using the page count. Optional: type
+  a page count for a book that has none (the only typing); once set, percent entries convert to pages.
+- Book page: Progress card (page X of Y, %, bar, Update button) while Reading. Update sheet: slider with
+  -10/-1/+1/+10 and optional time spent chips (None, 15, 30, 45, 60, 90). Moving backwards corrects the page
+  and logs nothing. Reaching the last page or 100% asks "Finished? Mark as read now" (never automatic).
+- "Update progress" in the long-press menu for Want and Reading books. Saving on a Want book sets it to Reading.
+- Hero card for a Reading book: bar, "Page X/Y" (or "X%"), an Update progress button beside the tick.
+- Rules: Read now credits the remaining pages to today. Read earlier credits nothing. Read again now credits
+  the full page count. Did not complete: stop page prefilled from progress, pages stay in stats. Back to
+  Want: deletes the reading log and resets progress.
+- New table ReadingLogs (itemId, readAt, fromPage, toPage, pages, minutes), new column for the progress
+  unit on MediaItems, schema 3 migration. Reuse `currentPage` for the current value.
+- Stats, Books view: pages read, reading days, average pages per reading day, current and longest streak,
+  reading time (only if logged), and a pages chart. The You card gets a Pages read tile. Books with no page
+  count count for reading days, streaks, time and finished, not for pages (small footnote on the stats
+  screen). Never say "watch time" for books. No reading goals and no estimated reading time for now.
 
 ## Extra features
 
 - Genres (browse and filter) and custom lists, see Contents tab
 - Backup: export everything to a JSON file and import it back (including the watch history and lists).
-  Planned, lives in Settings, Backup and data. Import should ask before replacing or merging.
+  Lives in You > Backup and data.
+  - Export (Batch 4): reads every table of the current schema (items, episodes, watch history, lists, list
+    entries) and writes one JSON file, shared through the Android share sheet (share_plus, path_provider),
+    so no storage permission is needed.
+  - Import (Batch 6): asks before replacing or merging. The export is extended with ReadingLogs.
 
 ## Background check and notifications
 
@@ -202,8 +256,11 @@ Code lives in `lib/background/`.
 
 - **Schedule:** a WorkManager periodic task (`bookmark.episodeCheck`) runs about every 24 hours
   (first run after 1 hour) when the phone has a network connection. It is registered on every app
-  launch with the `keep` policy, so it is never duplicated. Android decides the exact time.
+  launch with the `keep` policy, so it is never duplicated, unless the daily check switch is off, in which
+  case the task is cancelled. Android decides the exact time.
   On some phones (OnePlus) background activity may need to be allowed in Apps → Bookmark → Battery.
+- **Switch:** `dailyCheckEnabled` in SharedPreferencesAsync (on by default). `setDailyCheck(bool)` in
+  `background_worker.dart` saves it and schedules or cancels the task. The worker skips the run when it is off.
 - **Worker isolate:** the worker runs in its own isolate. It cannot use Riverpod or the app's open
   database, so it opens its own `AppDatabase()` connection to the same file and closes it when done.
   Because of that, open screens may not refresh until reopened.
@@ -221,8 +278,11 @@ Code lives in `lib/background/`.
   (milliseconds) with `SharedPreferencesAsync`. It only moves forward when no series failed, so a
   network error never makes an episode be missed (a partial failure can repeat a notification).
 - **Notifications:** one notification per series that is Watching or Watched (not wishlist or
-  dropped) and has unticked episodes that aired after the last check. The first run only records
-  the time and sends nothing. Text: "S2 E5 · Title is out" for one episode, "N new episodes are out"
+  dropped) and has unticked episodes that have aired since the last check. An episode is announced only
+  when its air date has arrived: local calendar days are compared (TMDB gives a date only), the air date
+  must be today or earlier and later than the day of the last check. An episode with no air date never
+  notifies. An episode aired today is announced at the next daily check that day. The first run only
+  records the time and sends nothing. Text: "S2 E5 · Title is out" for one episode, "N new episodes are out"
   for several. The notification id is the series id, so a newer one replaces the older one.
 - **Image:** a wide, rectangular backdrop (`TmdbClient.seriesBackdrop`, TMDB w780) in Android's
   big picture style, shown when the notification is expanded. Falls back to the saved poster, then
@@ -232,13 +292,15 @@ Code lives in `lib/background/`.
   closed (launch payload checked after the first frame).
 - **Permission:** the Android 13+ notification permission is requested from the app on launch,
   never from the worker. Each isolate calls `initNotifications()` itself.
-- **Testing:** use a temporary `debugRewindLastCheck()` (sets the last check to 30 days ago) and
-  `runEpisodeCheckNow()` (runs the task once) before `runApp`, then remove them.
+- **Testing:** use the temporary `debugRewindLastCheck()` (sets the last check to 30 days ago) and
+  `runEpisodeCheckNow()` (runs the task once), both in `background_worker.dart`, before `runApp`, then
+  remove the calls.
 
 ## Home screen
 
 1. Hero carousel with large posters (about 60% of the screen height). It only shows things you
-   can act on, each with the same round tick used on the detail pages:
+   can act on, each with the same round tick used on the detail pages. Order: active items first
+   (by last activity), then Want to watch movies.
    - **Series:** only a series (Watching or Watched) that has an aired, unticked episode. The card
      shows "Up next", or "New episode available" when an unticked aired episode aired after your
      last activity on the series. Under the title is the next episode (S2 E5 · title) with a tick
@@ -248,14 +310,16 @@ Code lives in `lib/background/`.
    - **Book being read:** a tick at the end of the title marks it as read now.
    - **Movie in Watching:** only possible with older data (movies no longer have a Watching option).
      A tick at the end of the title marks it as watched.
-     A series you have watched up to the last aired episode is not shown, even if it is still
+   - **Movie in Want to watch:** up to 10, newest added first, subtitle "Want to watch", shown after all
+     the active items. The tick marks it watched now (`lib/data/hero_queries.dart`).
+   - A series you have watched up to the last aired episode is not shown, even if it is still
      running. It comes back when new episodes are saved for it (the daily background check does
      that automatically). Tapping the rest of a card opens the item's page.
 2. Recently watched movies and series
 3. Recently read books
 
-Wish lists are not on Home. They are available through the "Want to ..." status filter on the
-Movies, Series and Books segments of the Contents tab. A search button sits in the top bar.
+Wish lists for books and series are not on Home. They are available through the "Want to ..." status
+filter on the Movies, Series and Books segments of the Contents tab. A search button sits in the top bar.
 
 ## Detail pages
 
@@ -300,14 +364,22 @@ Recommendations: other books by the same author plus top-rated books in one of t
 
 ## Data model (Drift tables, schema version 2)
 
-- MediaItems: one table for movie, series and book (type, externalId, title, posterUrl, overview, year, genres, status, rating, runtime, ongoing, author, pageCount, currentPage, dropReason, droppedAtPage, addedAt, lastActivityAt). Unique on (type, externalId). `rating` and `currentPage` are unused. `runtime` is minutes (movie length or typical episode length). `ongoing` is null until known. `genres` is a comma separated text.
+- MediaItems: one table for movie, series and book (type, externalId, title, posterUrl, overview, year, genres, status, rating, runtime, ongoing, author, pageCount, currentPage, dropReason, droppedAtPage, addedAt, lastActivityAt). Unique on (type, externalId). `rating` and `currentPage` are unused until Batch 5. `runtime` is minutes (movie length or typical episode length). `ongoing` is null until known. `genres` is a comma separated text.
 - Episodes: seriesId, seasonNumber, episodeNumber, title, airDate, runtime, watched, watchedAt. Unique on (seriesId, seasonNumber, episodeNumber).
 - WatchLogs: itemId, episodeId (null for movies and books), watchedAt, counted (true = watched now, false = watched earlier), minutes.
 - UserLists (id, unique name) and ListEntries (listId, itemId, primary key on both, cascade delete): custom lists, many-to-many with items.
 - Draft items and draft episodes (not in the database) use negative ids.
+- Batch 5 adds ReadingLogs and a progress unit column (schema 3).
 
 Posters are stored as medium images. Detail pages and the hero swap the URL for a larger version
 at display time (TMDB w780, Open Library -L).
+
+## Release
+
+Before version 1 (end of Batch 7): measure the release APK size
+(`flutter build apk --release --split-per-abi`, and `flutter build apk --analyze-size --target-platform android-arm64`),
+check that code and resource shrinking are on in `android/app/build.gradle.kts`, trim anything large,
+then release version 1. (A debug build from `flutter run` is always much bigger than a release build.)
 
 ## Progress
 
@@ -335,11 +407,17 @@ at display time (TMDB w780, Open Library -L).
 - [x] Real episodes shown for a series that is not in the library yet
 - [x] Mark flow rewrite: tap cycle, per-state menus with disabled options, back to Want with history delete,
       episode and season long press, "⋮" menu
-- [ ] Settings: daily check switch wired to workmanager (needs `lib/background/background_worker.dart`)
-- [ ] Settings: region picker (replaces the fixed `watchRegion`)
-- [ ] JSON export and import (include the watch history and lists), in Settings > Backup and data
-- [ ] Real app version in About (package_info_plus)
+- [x] Batch 1: app label "Bookmark", reading wording on the book sheet, "New list" card first
+- [x] Batch 2: notify only once the air date has arrived, daily check switch wired to workmanager
+- [x] Batch 3: stats card with period pill and sheet (default Week), full-width period chips on the Stats page,
+      unsaved movie tick = Watched now with auto-dismissing Undo, series flicker fix (loading overlay),
+      Want to watch movies in the Home hero
+- [ ] Batch 4: JSON export (You > Backup and data, schema 2 data, share sheet)
+- [ ] Batch 5: reading tracking (schema 3, ReadingLogs, progress unit) and book stats
+- [ ] Batch 6: JSON import (ask before replacing or merging, with ReadingLogs in the export), region picker
+      (replaces the fixed `watchRegion`), real app version in About (package_info_plus)
+- [ ] Batch 7: rolling "Window" stats (Last 7 days, Last month, Last 12 months), then app size check, then release version 1
 - [ ] Background check polish (optional, when the library grows): short pause between series for
-      TMDB rate limits, skip long-ended shows, show "last checked" time (needs a schema 3 migration)
+      TMDB rate limits, skip long-ended shows, show "last checked" time (needs a schema migration)
 - [ ] Later, if wanted: remember the last Contents segment after closing the app, newest-first order in
-      lists (needs schema 3), filter noisy Open Library subjects in genre chips
+      lists (needs a schema change), filter noisy Open Library subjects in genre chips, reading goals

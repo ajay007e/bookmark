@@ -23,6 +23,24 @@ class NewEpisodeAlert {
   }
 }
 
+/// The calendar day of [d] in local time (the clock time is dropped).
+DateTime _dayOf(DateTime d) {
+  final local = d.toLocal();
+  return DateTime(local.year, local.month, local.day);
+}
+
+/// True when [e] should be announced:
+/// - it has an air date (no date = never),
+/// - that day has arrived (today counts), and
+/// - it is later than the day of the previous check.
+/// TMDB only gives a date, so days are compared, not times.
+bool airedSinceLastCheck(Episode e, DateTime since, DateTime now) {
+  final airDate = e.airDate;
+  if (airDate == null) return false;
+  final day = _dayOf(airDate);
+  return day.isAfter(_dayOf(since)) && !day.isAfter(_dayOf(now));
+}
+
 /// What one refresh run did.
 class RefreshReport {
   RefreshReport({
@@ -55,7 +73,7 @@ class EpisodeRefresher {
   final TmdbClient _tmdb;
 
   /// [since] is the time of the previous successful check. Unticked
-  /// episodes that aired after it are reported in `alerts`.
+  /// episodes whose air date has arrived since then are reported in `alerts`.
   /// When [since] is null (first run) no alerts are made.
   Future<RefreshReport> run({DateTime? since}) async {
     final report = RefreshReport();
@@ -96,11 +114,7 @@ class EpisodeRefresher {
             series.status == Status.done;
         if (since != null && following) {
           final fresh = (await _db.episodesOf(series.id))
-              .where((e) =>
-          !e.watched &&
-              e.airDate != null &&
-              e.airDate!.isAfter(since) &&
-              !e.airDate!.isAfter(now))
+              .where((e) => !e.watched && airedSinceLastCheck(e, since, now))
               .toList()
             ..sort((a, b) {
               final s = a.seasonNumber.compareTo(b.seasonNumber);

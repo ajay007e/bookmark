@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -5,6 +7,7 @@ import '../api/detail_info.dart';
 import '../data/app_database.dart';
 import '../providers.dart';
 import 'draft_item.dart';
+import 'draft_saving.dart';
 import 'draft_series.dart';
 import 'series_actions.dart';
 import 'widgets/cast_row.dart';
@@ -41,10 +44,50 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
   int? _season; // null = the season of the last watched episode
   bool _focusPending = false;
 
+  // The last episode list we showed. Used while the saved list is loading,
+  // so the page never goes empty when a draft becomes a saved series.
+  List<Episode> _lastEps = const [];
+
+  // true while an unsaved series is being saved. A full-page spinner covers
+  // the page from the tap until the saved episodes are ready.
+  bool _covering = false;
+  bool _finishScheduled = false;
+  DateTime? _coverStart;
+  Timer? _safety;
+
+  static const _minCover = Duration(milliseconds: 500);
+
   MediaItem get item => widget.item;
+
+  void _cover() {
+    _covering = true;
+    _finishScheduled = false;
+    _coverStart = DateTime.now();
+    _safety?.cancel();
+    // Last-resort safety net, so the spinner can never get stuck.
+    _safety = Timer(const Duration(seconds: 10), _uncover);
+  }
+
+  void _uncover() {
+    _safety?.cancel();
+    _safety = null;
+    _finishScheduled = false;
+    if (mounted && _covering) setState(() => _covering = false);
+  }
+
+  @override
+  void didUpdateWidget(SeriesDetailView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The draft just became a saved series. If nothing started the spinner
+    // yet (for example the tick was used), start it now.
+    if (oldWidget.item.isDraft && !widget.item.isDraft && !_covering) {
+      _cover();
+    }
+  }
 
   @override
   void dispose() {
+    _safety?.cancel();
     _tabs.dispose();
     _strip.dispose();
     _list.dispose();
@@ -120,16 +163,56 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
     final info = ref.watch(seriesInfoProvider(item.externalId));
     final loaded = info.maybeWhen<SeriesInfo?>(data: (i) => i, orElse: () => null);
 
+    // true while an unsaved series is being saved (set by the mark actions).
+    final saving = ref.watch(draftSavingProvider);
+    ref.listen<bool>(draftSavingProvider, (_, isSaving) {
+      if (isSaving && item.isDraft && !_covering && mounted) {
+        setState(_cover);
+      }
+    });
+
     // A series that is not saved yet shows episodes fetched from TMDB.
     final AsyncValue<List<Episode>> epsState = item.isDraft
         ? ref.watch(draftEpisodesProvider(item.externalId))
         : ref.watch(episodesProvider(item.id));
-    final eps = epsState.maybeWhen<List<Episode>>(
+
+    final fresh = epsState.maybeWhen<List<Episode>?>(
       data: (l) => l,
-      orElse: () => const <Episode>[],
+      orElse: () => null,
     );
+
+    // The series is saved a moment before its episodes, so for an instant the
+    // saved list is empty. While covering, ignore that and keep showing the
+    // previous list.
+    final eps = (fresh != null && (fresh.isNotEmpty || !_covering))
+        ? fresh
+        : _lastEps;
+    _lastEps = eps;
+
     // Only used by the Episodes tab to show a spinner or an error for a draft.
     final AsyncValue<List<Episode>>? draftState = item.isDraft ? epsState : null;
+
+    // Remove the spinner once the saved episodes are ready (after a short
+    // minimum time, so it does not flash).
+    if (_covering && !saving && !_finishScheduled) {
+      if (!item.isDraft && fresh != null && fresh.isNotEmpty) {
+        _finishScheduled = true;
+        final left = _minCover - DateTime.now().difference(_coverStart!);
+        Future.delayed(left.isNegative ? Duration.zero : left, _uncover);
+      } else if (item.isDraft) {
+        // Saving ended but the series is still not in the library: it failed
+        // or was cancelled. Give the switch a moment, then remove the spinner.
+        _finishScheduled = true;
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (!mounted) return;
+          if (item.isDraft) {
+            _uncover();
+          } else {
+            setState(() => _finishScheduled = false); // re-check in build
+          }
+        });
+      }
+    }
 
     // Older series get their runtime and "still running" flag saved here.
     ref.listen<AsyncValue<SeriesInfo>>(seriesInfoProvider(item.externalId), (_, next) {
@@ -150,9 +233,28 @@ class _SeriesDetailViewState extends ConsumerState<SeriesDetailView>
       tabs: const [Tab(text: 'Details'), Tab(text: 'Episodes')],
     );
 
-    return _tabs.index == 1
+    final page = _tabs.index == 1
         ? _episodesPage(context, tabBar, loaded, eps, draftState)
         : _detailsPage(context, tabBar, info, loaded, eps);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        page,
+        if (_covering)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(
+                color: Theme.of(context)
+                    .colorScheme
+                    .surface
+                    .withValues(alpha: 0.92),
+                child: const Center(child: CircularProgressIndicator()),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   // ---------- Details tab ----------

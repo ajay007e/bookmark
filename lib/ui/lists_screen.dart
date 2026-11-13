@@ -140,8 +140,9 @@ class ListsScreen extends ConsumerWidget {
             crossAxisSpacing: 12,
             childAspectRatio: 0.8,
             children: [
-              for (final e in all) ListCard(list: e.list, count: e.count),
+              // "New list" is always the first card.
               _NewListCard(onTap: () => createListFlow(context, ref)),
+              for (final e in all) ListCard(list: e.list, count: e.count),
             ],
           ),
           loading: () => const Center(child: CircularProgressIndicator()),

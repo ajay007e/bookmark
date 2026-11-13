@@ -7,11 +7,13 @@ import '../data/labels.dart';
 import '../data/mark_queries.dart';
 import '../providers.dart';
 import 'draft_item.dart';
+import 'draft_saving.dart';
 import 'series_actions.dart';
 import 'widgets/add_to_list_sheet.dart';
 import 'widgets/drop_sheet.dart';
 
 enum WatchAction {
+  addToWant, // unsaved movie only: save it as Want to watch
   watching, // Watching (movies: disabled) or Reading (books)
   watchedNow,
   watchedEarlier,
@@ -37,7 +39,7 @@ List<MenuEntry> menuFor(MediaItem item, List<Episode> episodes) {
     case MediaType.movie:
       if (item.isDraft) {
         return const [
-          MenuEntry(WatchAction.watchedNow),
+          MenuEntry(WatchAction.addToWant),
           MenuEntry(WatchAction.watchedEarlier),
           MenuEntry(WatchAction.addToList),
         ];
@@ -119,6 +121,8 @@ String actionLabel(MediaItem item, WatchAction a) {
   final series = item.type == MediaType.series;
   final done = item.status == Status.done && !item.isDraft;
   switch (a) {
+    case WatchAction.addToWant:
+      return 'Want to watch';
     case WatchAction.watching:
       return book ? 'Reading' : 'Watching';
     case WatchAction.watchedNow:
@@ -141,13 +145,26 @@ String actionLabel(MediaItem item, WatchAction a) {
   }
 }
 
-String? actionHint(WatchAction a) => switch (a) {
-  WatchAction.watchedNow => 'Counts in your watch time',
-  WatchAction.watchedEarlier => 'Not counted in your watch time',
-  _ => null,
-};
+/// The small grey line under an option. Books use reading wording,
+/// movies and series use watch-time wording.
+String? actionHint(MediaItem item, WatchAction a) {
+  final book = item.type == MediaType.book;
+  switch (a) {
+    case WatchAction.watchedNow:
+      return book
+          ? 'Counts in your reading stats'
+          : 'Counts in your watch time';
+    case WatchAction.watchedEarlier:
+      return book
+          ? 'Not counted in your reading stats'
+          : 'Not counted in your watch time';
+    default:
+      return null;
+  }
+}
 
 IconData actionIcon(WatchAction a) => switch (a) {
+  WatchAction.addToWant => Icons.bookmark_add_outlined,
   WatchAction.watching => Icons.play_circle_outline,
   WatchAction.watchedNow => Icons.check_circle_outline,
   WatchAction.watchedEarlier => Icons.history,
@@ -199,25 +216,28 @@ Future<void> showWatchMenu(
               ),
             ),
             for (final e in entries)
-              ListTile(
-                enabled: e.enabled,
-                leading: Icon(
-                  actionIcon(e.action),
-                  color: (e.action == WatchAction.remove && e.enabled)
-                      ? scheme.error
+              Builder(builder: (_) {
+                final subtitle = e.note ?? actionHint(item, e.action);
+                return ListTile(
+                  enabled: e.enabled,
+                  leading: Icon(
+                    actionIcon(e.action),
+                    color: (e.action == WatchAction.remove && e.enabled)
+                        ? scheme.error
+                        : null,
+                  ),
+                  title: Text(
+                    actionLabel(item, e.action),
+                    style: (e.action == WatchAction.remove && e.enabled)
+                        ? TextStyle(color: scheme.error)
+                        : null,
+                  ),
+                  subtitle: subtitle == null ? null : Text(subtitle),
+                  onTap: e.enabled
+                      ? () => Navigator.of(sheetContext).pop(e.action)
                       : null,
-                ),
-                title: Text(
-                  actionLabel(item, e.action),
-                  style: (e.action == WatchAction.remove && e.enabled)
-                      ? TextStyle(color: scheme.error)
-                      : null,
-                ),
-                subtitle: (e.note ?? actionHint(e.action)) == null
-                    ? null
-                    : Text(e.note ?? actionHint(e.action)!),
-                onTap: e.enabled ? () => Navigator.of(sheetContext).pop(e.action) : null,
-              ),
+                );
+              }),
           ],
         ),
       );
@@ -239,7 +259,25 @@ Future<MediaItem?> _saveDraft(WidgetRef ref, MediaItem draft) async {
 }
 
 /// Runs one option from the menu. An item that is not saved yet is saved first.
+/// For an unsaved series the page shows a full-page spinner meanwhile.
 Future<void> runWatchAction(
+    BuildContext context,
+    WidgetRef ref,
+    MediaItem original,
+    WatchAction action, {
+      List<Episode> episodes = const [],
+    }) async {
+  final cover = original.isDraft && original.type == MediaType.series;
+  final saving = ref.read(draftSavingProvider.notifier);
+  if (cover) saving.set(true);
+  try {
+    await _runWatchAction(context, ref, original, action, episodes: episodes);
+  } finally {
+    if (cover) saving.set(false);
+  }
+}
+
+Future<void> _runWatchAction(
     BuildContext context,
     WidgetRef ref,
     MediaItem original,
@@ -272,6 +310,12 @@ Future<void> runWatchAction(
   final todo = eps.where((e) => !e.watched && isAired(e, now)).toList();
 
   switch (action) {
+    case WatchAction.addToWant:
+    // The item was already saved as Want above. Nothing more to do.
+      messenger.showSnackBar(SnackBar(
+        content: Text('Added "${item.title}" to Want to watch'),
+      ));
+
     case WatchAction.watching:
       await db.setStatus(item.id, Status.inProgress);
 
@@ -330,6 +374,8 @@ Future<void> runWatchAction(
       if (result != null) await db.setDropped(item.id, result.reason, result.page);
 
     case WatchAction.addToList:
+    // The item is saved. Let the page's spinner go before the sheet opens.
+      ref.read(draftSavingProvider.notifier).set(false);
       await showAddToListSheet(context, item);
 
     case WatchAction.remove:

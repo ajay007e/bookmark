@@ -3,9 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../stats/stats_provider.dart';
-import 'pill_segments.dart';
 
-/// Period selector and a card with watch time and counts.
+/// Watch time and counts for one period. The pill in the corner opens a
+/// sheet to change the period, tapping the card opens the detailed stats
+/// for that period.
 class StatsCard extends ConsumerStatefulWidget {
   const StatsCard({super.key});
 
@@ -14,55 +15,121 @@ class StatsCard extends ConsumerStatefulWidget {
 }
 
 class _StatsCardState extends ConsumerState<StatsCard> {
-  StatsPeriod _period = StatsPeriod.month;
+  StatsPeriod _period = StatsPeriod.week;
+
+  static IconData _icon(StatsPeriod p) => switch (p) {
+    StatsPeriod.week => Icons.view_week_outlined,
+    StatsPeriod.month => Icons.calendar_view_month_outlined,
+    StatsPeriod.year => Icons.calendar_today_outlined,
+    StatsPeriod.all => Icons.all_inclusive_rounded,
+  };
+
+  Future<void> _pickPeriod() async {
+    final picked = await showModalBottomSheet<StatsPeriod>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final scheme = Theme.of(sheetContext).colorScheme;
+        final text = Theme.of(sheetContext).textTheme;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: Text('Show stats for', style: text.titleLarge),
+              ),
+              for (final p in StatsPeriod.values)
+                ListTile(
+                  selected: p == _period,
+                  selectedTileColor:
+                  scheme.primaryContainer.withValues(alpha: 0.5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  leading: Icon(_icon(p)),
+                  title: Text(p.label),
+                  subtitle: Text(p.heading),
+                  trailing: p == _period
+                      ? Icon(Icons.check_circle, color: scheme.primary)
+                      : null,
+                  onTap: () => Navigator.of(sheetContext).pop(p),
+                ).paddedHorizontally(12),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+    if (picked != null && mounted) setState(() => _period = picked);
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final on = scheme.onPrimaryContainer;
     final stats = ref.watch(statsProvider(_period));
 
-    return Column(
-      children: [
-        const SizedBox(height: 4),
-        PillSegments(
-          labels: [for (final p in StatsPeriod.values) p.label],
-          selected: _period.index,
-          onChanged: (i) => setState(() => _period = StatsPeriod.values[i]),
-        ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Container(
-            width: double.infinity,
-            constraints: const BoxConstraints(minHeight: 190),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [scheme.primaryContainer, scheme.tertiaryContainer],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => context.push('/stats?period=${_period.name}'),
+        child: Stack(
+          children: [
+            Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(minHeight: 190),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [scheme.primaryContainer, scheme.tertiaryContainer],
+                ),
+              ),
+              child: stats.when(
+                data: (s) => _content(context, s),
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Center(child: Text('Something went wrong: $e')),
               ),
             ),
-            child: stats.when(
-              data: (s) => _content(context, s),
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Something went wrong: $e')),
+            Positioned(
+              top: 14,
+              right: 14,
+              child: Material(
+                color: on.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: _pickPeriod,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _period.label,
+                          style: text.labelLarge?.copyWith(
+                            color: on,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Icon(Icons.expand_more_rounded, size: 20, color: on),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
+          ],
         ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: TextButton.icon(
-              onPressed: () => context.push('/stats?period=${_period.name}'),
-              icon: const Icon(Icons.bar_chart_rounded),
-              label: const Text('Detailed stats'),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -124,6 +191,12 @@ class _StatsCardState extends ConsumerState<StatsCard> {
       ],
     );
   }
+}
+
+/// Small helper so the sheet rows have a little space on both sides.
+extension on Widget {
+  Widget paddedHorizontally(double v) =>
+      Padding(padding: EdgeInsets.symmetric(horizontal: v), child: this);
 }
 
 class _Stat extends StatelessWidget {

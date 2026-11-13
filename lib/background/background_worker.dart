@@ -17,6 +17,13 @@ const String episodeCheckTaskName = 'episodeCheck';
 /// Where the time of the last successful check is saved (milliseconds).
 const String lastCheckKey = 'lastEpisodeCheck';
 
+/// Where the You > New episodes switch is saved (true = on).
+const String dailyCheckKey = 'dailyCheckEnabled';
+
+/// Whether the daily check is switched on. On by default.
+Future<bool> isDailyCheckEnabled() async =>
+    await SharedPreferencesAsync().getBool(dailyCheckKey) ?? true;
+
 /// This function is the entry point for ALL background work.
 /// `@pragma('vm:entry-point')` stops Dart from removing it in release
 /// builds, because nothing in the app calls it directly (Android does).
@@ -26,6 +33,12 @@ void callbackDispatcher() {
     debugPrint('[Worker] started: $task');
     try {
       if (task == episodeCheckTaskName) {
+        // Safety net: if the switch is off, do nothing.
+        if (!await isDailyCheckEnabled()) {
+          debugPrint('[Worker] daily check is off, skipping');
+          return true;
+        }
+
         final prefs = SharedPreferencesAsync();
         final lastMillis = await prefs.getInt(lastCheckKey);
         final since = lastMillis == null
@@ -73,11 +86,9 @@ void callbackDispatcher() {
   });
 }
 
-/// Call once at app start. Safe to call on every launch.
-Future<void> initBackgroundWork() async {
-  await Workmanager().initialize(callbackDispatcher);
-
-  await Workmanager().registerPeriodicTask(
+/// Schedules the daily task (about every 24 hours, on a network connection).
+Future<void> _registerDailyCheck() {
+  return Workmanager().registerPeriodicTask(
     episodeCheckUniqueName,
     episodeCheckTaskName,
     frequency: const Duration(hours: 24),
@@ -88,12 +99,26 @@ Future<void> initBackgroundWork() async {
   );
 }
 
-/// Temporary helper for testing: runs the task once, right now.
-/// Remove it (and its call in main.dart) when testing is done.
-Future<void> runEpisodeCheckNow() async {
-  await Workmanager().registerOneOffTask(
-    'bookmark.episodeCheck.debug',
-    episodeCheckTaskName,
-    existingWorkPolicy: ExistingWorkPolicy.replace,
-  );
+/// Call once at app start. Safe to call on every launch.
+/// Follows the saved switch: on = scheduled, off = cancelled.
+Future<void> initBackgroundWork() async {
+  await Workmanager().initialize(callbackDispatcher);
+
+  if (await isDailyCheckEnabled()) {
+    await _registerDailyCheck();
+  } else {
+    await Workmanager().cancelByUniqueName(episodeCheckUniqueName);
+  }
+}
+
+/// Called by the You > New episodes switch. Saves the choice, then
+/// schedules or cancels the daily task.
+Future<void> setDailyCheck(bool enabled) async {
+  await SharedPreferencesAsync().setBool(dailyCheckKey, enabled);
+  if (enabled) {
+    await _registerDailyCheck();
+  } else {
+    await Workmanager().cancelByUniqueName(episodeCheckUniqueName);
+  }
+  debugPrint('[Worker] daily check ${enabled ? 'ON' : 'OFF'}');
 }

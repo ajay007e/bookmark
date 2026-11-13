@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/app_database.dart';
 import '../providers.dart';
 import 'draft_item.dart';
+import 'draft_saving.dart';
 
 /// An episode counts as aired when it has a date that is not in the future.
 bool isAired(Episode e, DateTime now) =>
@@ -136,7 +137,8 @@ Future<void> tickEpisodes(
 
 /// Like [tickEpisodes], but also works for a series that is not saved yet:
 /// it saves the series (as Want, with all its episodes) and then marks the
-/// same episodes in the saved copy.
+/// same episodes in the saved copy. While that happens the series page shows
+/// a full-page spinner (see draftSavingProvider).
 Future<void> markEpisodes(
     BuildContext context,
     WidgetRef ref, {
@@ -156,36 +158,46 @@ Future<void> markEpisodes(
     );
   }
 
+  // Grab everything we need before the first await.
   final db = ref.read(databaseProvider);
+  final repo = ref.read(repositoryProvider);
+  final saving = ref.read(draftSavingProvider.notifier);
   final messenger = ScaffoldMessenger.of(context);
+
+  saving.set(true);
   try {
-    await ref.read(repositoryProvider).add(resultFromDraft(series), Status.want);
-  } catch (_) {
-    messenger.showSnackBar(const SnackBar(
-      content: Text('Could not add it. Check your connection and try again.'),
-    ));
-    return;
+    try {
+      await repo.add(resultFromDraft(series), Status.want);
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Could not add it. Check your connection and try again.'),
+      ));
+      return;
+    }
+
+    final id = await db.findId(series.type, series.externalId);
+    if (id == null || !context.mounted) return;
+
+    // Match the unsaved episodes with the saved ones by season and number.
+    final saved = await db.episodesOf(id);
+    final wanted = {for (final e in targets) (e.seasonNumber, e.episodeNumber)};
+    final savedTargets = [
+      for (final e in saved)
+        if (wanted.contains((e.seasonNumber, e.episodeNumber))) e,
+    ];
+
+    if (!context.mounted) return;
+    await tickEpisodes(
+      context,
+      ref,
+      seriesId: id,
+      all: saved,
+      targets: savedTargets,
+      counted: counted,
+    );
+  } finally {
+    saving.set(false);
   }
-
-  final id = await db.findId(series.type, series.externalId);
-  if (id == null || !context.mounted) return;
-
-  // Match the unsaved episodes with the saved ones by season and number.
-  final saved = await db.episodesOf(id);
-  final wanted = {for (final e in targets) (e.seasonNumber, e.episodeNumber)};
-  final savedTargets = [
-    for (final e in saved)
-      if (wanted.contains((e.seasonNumber, e.episodeNumber))) e,
-  ];
-
-  await tickEpisodes(
-    context,
-    ref,
-    seriesId: id,
-    all: saved,
-    targets: savedTargets,
-    counted: counted,
-  );
 }
 
 /// The episode to watch next: the first aired, unticked episode after the
