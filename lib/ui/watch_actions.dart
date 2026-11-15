@@ -63,6 +63,7 @@ List<MenuEntry> menuFor(MediaItem item, List<Episode> episodes) {
     case MediaType.book:
       if (item.isDraft) {
         return const [
+          MenuEntry(WatchAction.addToWant),
           MenuEntry(WatchAction.watching),
           MenuEntry(WatchAction.watchedNow),
           MenuEntry(WatchAction.watchedEarlier),
@@ -122,7 +123,7 @@ String actionLabel(MediaItem item, WatchAction a) {
   final done = item.status == Status.done && !item.isDraft;
   switch (a) {
     case WatchAction.addToWant:
-      return 'Want to watch';
+      return book ? 'Want to read' : 'Want to watch';
     case WatchAction.watching:
       return book ? 'Reading' : 'Watching';
     case WatchAction.watchedNow:

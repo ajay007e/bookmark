@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/backup_service.dart';
+import '../providers.dart';
 import '../settings/daily_check_provider.dart';
 import '../settings/theme_provider.dart';
+import 'import_flow.dart';
 import 'widgets/accent_picker.dart';
 import 'widgets/app_nav_bar.dart';
 import 'widgets/premium_app_bar.dart';
@@ -41,6 +44,18 @@ class YouScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Writes the backup file and opens the share sheet.
+  Future<void> _export(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await exportBackup(ref.read(databaseProvider));
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not export your data: $e')),
+      );
+    }
   }
 
   @override
@@ -130,20 +145,22 @@ class YouScreen extends ConsumerWidget {
             ],
           ),
 
-          const SettingsSection(
+          SettingsSection(
             title: 'Backup and data',
             children: [
               SettingsTile(
                 icon: Icons.file_upload_outlined,
                 title: 'Export to JSON',
                 subtitle: 'Save everything, including watch history',
-                soon: true,
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _export(context, ref),
               ),
               SettingsTile(
                 icon: Icons.file_download_outlined,
                 title: 'Import from JSON',
                 subtitle: 'Restore from a backup file',
-                soon: true,
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => importBackupFlow(context, ref),
               ),
             ],
           ),
