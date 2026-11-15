@@ -5,8 +5,13 @@ import '../data/app_database.dart';
 import 'detail_info.dart';
 import 'search_result.dart';
 
-/// Streaming availability is shown for this country.
+/// Default streaming country. The user's choice (You > Streaming > Region)
+/// is passed to movieInfo and seriesInfo as `region`.
 const watchRegion = 'AU';
+
+/// The user's region first, then the US.
+List<String> _countries(String region) =>
+    region == 'US' ? const ['US'] : [region, 'US'];
 
 class TmdbClient {
   TmdbClient([Dio? dio])
@@ -104,7 +109,8 @@ class TmdbClient {
   }
 
   /// Everything the movie page shows beyond what is saved on the phone.
-  Future<MovieInfo> movieInfo(String id) async {
+  /// [region] decides the streaming options, age rating and release date.
+  Future<MovieInfo> movieInfo(String id, {String region = watchRegion}) async {
     final res = await _dio.get(
       '/movie/$id',
       queryParameters: {
@@ -122,14 +128,14 @@ class TmdbClient {
         .toList();
 
     final tagline = (data['tagline'] as String?)?.trim();
-    final release = _release(data);
+    final release = _release(data, region);
 
     return MovieInfo(
       tagline: (tagline == null || tagline.isEmpty) ? null : tagline,
       runtime: _minutes(data['runtime']),
       voteAverage: (data['vote_average'] as num?)?.toDouble(),
       voteCount: (data['vote_count'] as num?)?.toInt() ?? 0,
-      certification: _certification(data['release_dates']),
+      certification: _certification(data['release_dates'], region),
       directors: directors,
       writers: _writers(credits),
       cast: _cast(credits),
@@ -138,13 +144,13 @@ class TmdbClient {
       releaseCountry: release.country,
       language: _language(data),
       status: data['status'] as String?,
-      watch: _watchOptions(data['watch/providers']),
+      watch: _watchOptions(data['watch/providers'], region),
     );
   }
 
   /// Rating, runtime, certification, creators, cast and recommendations.
   /// Everything the series page shows beyond what is saved on the phone.
-  Future<SeriesInfo> seriesInfo(String id) async {
+  Future<SeriesInfo> seriesInfo(String id, {String region = watchRegion}) async {
     final res = await _dio.get(
       '/tv/$id',
       queryParameters: {
@@ -185,13 +191,13 @@ class TmdbClient {
       runtime: _seriesRuntime(data),
       voteAverage: (data['vote_average'] as num?)?.toDouble(),
       voteCount: (data['vote_count'] as num?)?.toInt() ?? 0,
-      certification: _tvRating(data['content_ratings']),
+      certification: _tvRating(data['content_ratings'], region),
       status: data['status'] as String?,
       language: _language(data),
       creators: creators,
       cast: _cast(credits),
       similar: _similar(data['recommendations'], MediaType.series),
-      watch: _watchOptions(data['watch/providers']),
+      watch: _watchOptions(data['watch/providers'], region),
       seasons: seasons,
     );
   }
@@ -235,12 +241,12 @@ class TmdbClient {
   static String? _seasonPoster(String? path) =>
       path == null ? null : 'https://image.tmdb.org/t/p/w342$path';
 
-  /// Streaming, free, rental and purchase options in [watchRegion].
-  static WatchOptions _watchOptions(dynamic block) {
-    final region = ((block as Map?)?['results'] as Map?)?[watchRegion] as Map?;
-    if (region == null) return const WatchOptions();
+  /// Streaming, free, rental and purchase options in [region].
+  static WatchOptions _watchOptions(dynamic block, String region) {
+    final found = ((block as Map?)?['results'] as Map?)?[region] as Map?;
+    if (found == null) return const WatchOptions();
 
-    List<WatchProvider> list(String key) => ((region[key] as List?) ?? const [])
+    List<WatchProvider> list(String key) => ((found[key] as List?) ?? const [])
         .cast<Map<String, dynamic>>()
         .map((p) => WatchProvider(
       name: (p['provider_name'] as String?) ?? '',
@@ -249,7 +255,7 @@ class TmdbClient {
         .toList();
 
     return WatchOptions(
-      link: region['link'] as String?,
+      link: found['link'] as String?,
       stream: list('flatrate'),
       free: [...list('free'), ...list('ads')],
       rent: list('rent'),
@@ -285,9 +291,12 @@ class TmdbClient {
     return code.toUpperCase();
   }
 
-  /// Earliest cinema release in Australia, then the US. Falls back to
+  /// Earliest cinema release in [region], then the US. Falls back to
   /// TMDB's general release date (without a country).
-  static ({DateTime? date, String? country}) _release(Map<String, dynamic> data) {
+  static ({DateTime? date, String? country}) _release(
+      Map<String, dynamic> data,
+      String region,
+      ) {
     DateTime? day(String? s) =>
         (s == null || s.length < 10) ? null : DateTime.tryParse(s.substring(0, 10));
 
@@ -295,7 +304,7 @@ class TmdbClient {
         ?.cast<Map<String, dynamic>>() ??
         const <Map<String, dynamic>>[];
 
-    for (final country in [watchRegion, 'US']) {
+    for (final country in _countries(region)) {
       DateTime? best;
       for (final r in results.where((r) => r['iso_3166_1'] == country)) {
         final dates = ((r['release_dates'] as List?) ?? const [])
@@ -312,12 +321,12 @@ class TmdbClient {
     return (date: day(data['release_date'] as String?), country: null);
   }
 
-  /// First age rating found for Australia, then the US.
-  static String? _certification(dynamic releaseDates) {
+  /// First age rating found for [region], then the US.
+  static String? _certification(dynamic releaseDates, String region) {
     final results = ((releaseDates as Map?)?['results'] as List?)
         ?.cast<Map<String, dynamic>>() ??
         const [];
-    for (final country in ['AU', 'US']) {
+    for (final country in _countries(region)) {
       for (final r in results.where((r) => r['iso_3166_1'] == country)) {
         final dates = ((r['release_dates'] as List?) ?? const [])
             .cast<Map<String, dynamic>>();
@@ -330,11 +339,11 @@ class TmdbClient {
     return null;
   }
 
-  static String? _tvRating(dynamic contentRatings) {
+  static String? _tvRating(dynamic contentRatings, String region) {
     final results = ((contentRatings as Map?)?['results'] as List?)
         ?.cast<Map<String, dynamic>>() ??
         const <Map<String, dynamic>>[];
-    for (final country in ['AU', 'US']) {
+    for (final country in _countries(region)) {
       for (final r in results.where((r) => r['iso_3166_1'] == country)) {
         final c = (r['rating'] as String?)?.trim();
         if (c != null && c.isNotEmpty) return c;

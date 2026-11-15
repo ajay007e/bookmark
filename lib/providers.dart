@@ -6,6 +6,7 @@ import 'api/search_result.dart';
 import 'api/tmdb_client.dart';
 import 'data/app_database.dart';
 import 'data/library_repository.dart';
+import 'settings/region_provider.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();
@@ -52,8 +53,12 @@ final itemProvider = StreamProvider.family<MediaItem?, int>(
 );
 
 /// Extra movie details (rating, cast, runtime) from TMDB, fetched when a page opens.
+/// Uses the region from You > Streaming, and reloads when it changes.
 final movieInfoProvider = FutureProvider.family<MovieInfo, String>(
-      (ref, tmdbId) => ref.watch(tmdbProvider).movieInfo(tmdbId),
+      (ref, tmdbId) async {
+    final region = await ref.watch(regionProvider.future);
+    return ref.watch(tmdbProvider).movieInfo(tmdbId, region: region);
+  },
   retry: (count, error) => null, // no automatic retries, so the offline note shows quickly
 );
 
@@ -65,7 +70,10 @@ final bookInfoProvider = FutureProvider.family<BookInfo, String>(
 
 /// Extra series details (rating, cast, recommendations) from TMDB.
 final seriesInfoProvider = FutureProvider.family<SeriesInfo, String>(
-      (ref, tmdbId) => ref.watch(tmdbProvider).seriesInfo(tmdbId),
+      (ref, tmdbId) async {
+    final region = await ref.watch(regionProvider.future);
+    return ref.watch(tmdbProvider).seriesInfo(tmdbId, region: region);
+  },
   retry: (count, error) => null,
 );
 

@@ -12,6 +12,8 @@ No login or accounts. All data lives in a local database on the phone.
 - Give complete files with the file path above each one, and tell me how to run and check each step
 - Build in small steps
 - At the end of each reply, list completed and pending tasks. A task stays pending until I confirm it works.
+- Some code written in chat needed small fixes for the latest package versions (for example `file_picker`).
+  The project files are the source of truth: when a change touches a file I may have edited, ask me to paste it.
 
 ## Stack
 
@@ -27,13 +29,14 @@ No login or accounts. All data lives in a local database on the phone.
 - workmanager for the daily new-episode check
 - flutter_local_notifications for new-episode notifications
 - shared_preferences (`SharedPreferencesAsync`, safe to use from the app and the worker) for the last-check
-  time, the daily check switch, the theme and the accent colour
-- Planned for Batch 4: share_plus and path_provider (JSON export through the Android share sheet).
-  Planned for Batch 6: package_info_plus (real app version).
+  time, the daily check switch, the theme, the accent colour and the streaming region
+- share_plus and path_provider for the JSON export (Android share sheet, no storage permission)
+- file_picker for choosing a backup file to import (no storage permission)
+- package_info_plus for the real app version in About
 - Data sources: TMDB (movies, series, episodes, streaming availability; free API key kept in lib/config/secrets.dart, gitignored) and Open Library (books)
 - Streaming availability comes from TMDB's watch-provider data, which is supplied by JustWatch.
-  Shown for Australia only (`watchRegion = 'AU'` in tmdb_client.dart) with the credit line
-  "Streaming data by JustWatch, via TMDB."
+  Shown for the region chosen in You > Streaming (Australia by default, `watchRegion = 'AU'` in tmdb_client.dart
+  is only the default) with the credit line "Streaming data by JustWatch, via TMDB."
 
 ## Android setup
 
@@ -195,10 +198,16 @@ One scrolling page: stats on top, then grouped settings.
 - **New episodes:** "Daily check" switch, on by default, saved as `dailyCheckEnabled`
   (`lib/settings/daily_check_provider.dart`). Turning it off cancels the workmanager task, turning it on
   schedules it again. The worker also checks the setting before it runs. Tapping the whole row toggles it.
-- **Streaming:** region (placeholder, "Soon"). Fixed to Australia for now. Batch 6 adds a picker.
-- **Backup and data:** Export to JSON (Batch 4) and Import from JSON (Batch 6, placeholder "Soon" until then).
-- **About:** version (hard-coded 1.0.0 until Batch 6), and a "Credits and data sources" sheet (TMDB notice,
-  JustWatch line, Open Library).
+- **Streaming:** "Region" row showing the country and code (for example "Australia (AU)"). Tapping it opens a
+  scrollable sheet of 46 countries with a tick on the current one (`lib/ui/widgets/region_sheet.dart`).
+  The choice is saved as `watchRegion` in SharedPreferencesAsync (`lib/settings/region_provider.dart`,
+  default AU). It decides the "Watch now" options, the age rating and the release date: the chosen region
+  is tried first, then the US. Open detail pages reload when it changes. Another country is added with one
+  line in the `regions` list.
+- **Backup and data:** Export to JSON and Import from JSON, both working (see Backup below).
+- **About:** the real version, for example "1.0.0 (1)", read from the `version:` line in pubspec.yaml with
+  package_info_plus (`lib/settings/app_info_provider.dart`), and a "Credits and data sources" sheet
+  (TMDB notice, JustWatch line, Open Library).
 
 ## Stats
 
@@ -235,20 +244,43 @@ One scrolling page: stats on top, then grouped settings.
   Want: deletes the reading log and resets progress.
 - New table ReadingLogs (itemId, readAt, fromPage, toPage, pages, minutes), new column for the progress
   unit on MediaItems, schema 3 migration. Reuse `currentPage` for the current value.
+- ReadingLogs and the progress unit are added to the JSON export and import in this batch. A backup made
+  before it still imports (no reading history).
 - Stats, Books view: pages read, reading days, average pages per reading day, current and longest streak,
   reading time (only if logged), and a pages chart. The You card gets a Pages read tile. Books with no page
   count count for reading days, streaks, time and finished, not for pages (small footnote on the stats
   screen). Never say "watch time" for books. No reading goals and no estimated reading time for now.
 
-## Extra features
+## Backup (You > Backup and data)
 
-- Genres (browse and filter) and custom lists, see Contents tab
-- Backup: export everything to a JSON file and import it back (including the watch history and lists).
-  Lives in You > Backup and data.
-  - Export (Batch 4): reads every table of the current schema (items, episodes, watch history, lists, list
-    entries) and writes one JSON file, shared through the Android share sheet (share_plus, path_provider),
-    so no storage permission is needed.
-  - Import (Batch 6): asks before replacing or merging. The export is extended with ReadingLogs.
+Code: `lib/data/export_queries.dart`, `lib/data/backup_service.dart` (export),
+`lib/data/import_queries.dart`, `lib/ui/import_flow.dart` (import).
+
+- **Export:** reads every table of the current schema (MediaItems, Episodes, WatchLogs, UserLists,
+  ListEntries) and writes one JSON file named `bookmark-backup-YYYY-MM-DD.json` to the temporary folder,
+  then opens the Android share sheet (save to Files or Drive, or send it to yourself).
+  The file has `app: "bookmark"`, `format` (1), `schemaVersion`, `exportedAt` and a `counts` block.
+  Enums are written as names (`movie`, `inProgress`), dates as UTC text, and ids are kept as they are.
+- **Import:** pick the file with the system file chooser. The app checks it (a Bookmark backup, a format it
+  understands, not from a newer version) and changes nothing if it is not valid. Older backups with a
+  missing table or field still import (missing means empty or default, unknown fields are ignored).
+  All writes happen in one transaction, so an import either fully succeeds or changes nothing. A report
+  is shown at the end ("Import done: 30 added, 12 merged, ...").
+  - Ids in the file are never trusted: a map from backup id to the real id on the phone is used for
+    episodes, history and list entries.
+  - Empty library: everything is imported after one confirmation.
+  - Items are matched by type + external id (TMDB id or Open Library key).
+  - Item only in the backup: added with its episodes and history. Item only on the phone: untouched.
+  - Item on both with the same progress (status, stop details, ticked episodes, history): skipped.
+  - Item on both with different progress is a **conflict**. One sheet lists the titles with the reason
+    (for example "Phone: Watching, backup: Watched") and the user picks one choice for all of them:
+    - **Merge both (recommended):** ticked episodes are the union, history rows are the union (identical rows
+      skipped), the status and stop reason come from the side with the later activity, missing details are
+      filled from the other side, and a series status is recalculated from the merged episodes.
+    - **Keep my phone's version:** conflicting items stay as they are.
+    - **Use the backup's version:** conflicting items take the backup's status, ticks and history.
+  - Lists are joined by name (ignoring case) and their entries are combined. They are never a conflict.
+  - Importing the same file twice changes nothing the second time.
 
 ## Background check and notifications
 
@@ -263,7 +295,7 @@ Code lives in `lib/background/`.
   `background_worker.dart` saves it and schedules or cancels the task. The worker skips the run when it is off.
 - **Worker isolate:** the worker runs in its own isolate. It cannot use Riverpod or the app's open
   database, so it opens its own `AppDatabase()` connection to the same file and closes it when done.
-  Because of that, open screens may not refresh until reopened.
+  Because of that, open screens may not refresh until reopened. The region does not affect the worker.
 - **Refresh (`EpisodeRefresher`):** for every series in the library it fetches TMDB details
   (`seriesDetails`) and applies them with `AppDatabase.applySeriesRefresh` in one transaction:
   - new episodes are inserted
@@ -330,21 +362,25 @@ with the tick button on the right; the button never makes the row taller than th
 The same views are used for saved items and for items not in the library (draft items, see Mark flow).
 
 - Rating shown as a coloured ring (green 7+/10 or 3.5+/5, amber, red).
-- Details are fetched when the page opens. If offline, the saved info still shows with a short note.
+- Details are fetched when the page opens, for the region chosen in You > Streaming. If offline, the saved
+  info still shows with a short note.
 - Sections are separated by thin lines (Cast, Similar).
 - "You may also like" row: tap any item to open its page (the saved page for items in the library,
   marked with a small tick; otherwise a preview page).
+- Note: the "Watch now" section (`WatchNowSection`) is currently commented out in `movie_detail_view.dart`
+  and `series_detail_view.dart`. Uncomment `WatchNowSection(options: loaded?.watch)` to show it.
 
 **Movie** (top to bottom): title (year) + tick; rating ring | line 1: age rating · duration, line 2:
 release date (country) · original language · status; categories; Watch now (Stream, Free, Rent,
-Buy with logos in Australia; a logo opens TMDB's watch page); tagline; overview; Director | Writer;
-Cast; Similar. Age rating: Australia first, then US. Release date: Australian cinema release, then
-US, then the general date.
+Buy with logos in the chosen region; a logo opens TMDB's watch page); tagline; overview; Director | Writer;
+Cast; Similar. Age rating: chosen region first, then US. Release date: cinema release in the chosen region,
+then US, then the general date.
 
 **Series** has two tabs.
 
-- **Details tab:** title (year) + status icon; rating ring | line 1: age rating, line 2: original language ·
-  status (Ongoing/Ended); categories; Watch now; tagline; overview; Creator; Cast; Similar.
+- **Details tab:** title (year) + status icon; rating ring | line 1: age rating (chosen region first, then US),
+  line 2: original language · status (Ongoing/Ended); categories; Watch now; tagline; overview; Creator;
+  Cast; Similar.
 - **Episodes tab:** a plain app bar with the tabs, then a row of season cards (poster, Season n,
   watched/total, rating · year · n episodes, overview or "Aired x of y episodes", progress bar)
   that scrolls sideways and stays pinned at the top. Below it the episodes of the selected season
@@ -392,7 +428,7 @@ then release version 1. (A debug build from `flutter run` is always much bigger 
 - [x] "You may also like" on movie, series and book pages
 - [x] Tick button with long-press options, watch history (WatchLogs), database schema 2
 - [x] Series status rules (running series stay Watching)
-- [x] Redesigned detail layouts, Watch now (Australia)
+- [x] Redesigned detail layouts, Watch now
 - [x] Series Details and Episodes tabs (pinned season cards, last watched episode at the top)
 - [x] Home hero as a to-do list: next episode with tick, book and movie ticks, caught-up series hidden
 - [x] Daily background check for new episodes (workmanager): refreshes saved episodes, genres, runtime and ongoing flag
@@ -412,10 +448,11 @@ then release version 1. (A debug build from `flutter run` is always much bigger 
 - [x] Batch 3: stats card with period pill and sheet (default Week), full-width period chips on the Stats page,
       unsaved movie tick = Watched now with auto-dismissing Undo, series flicker fix (loading overlay),
       Want to watch movies in the Home hero
-- [ ] Batch 4: JSON export (You > Backup and data, schema 2 data, share sheet)
-- [ ] Batch 5: reading tracking (schema 3, ReadingLogs, progress unit) and book stats
-- [ ] Batch 6: JSON import (ask before replacing or merging, with ReadingLogs in the export), region picker
-      (replaces the fixed `watchRegion`), real app version in About (package_info_plus)
+- [x] Batch 4: JSON export (share sheet)
+- [x] JSON import with conflict handling (merge both, keep phone, use backup)
+- [x] Batch 6: region picker (46 countries, saved, drives Watch now, age rating and release date) and real
+      app version in About (package_info_plus)
+- [ ] Batch 5: reading tracking (schema 3, ReadingLogs, progress unit), book stats, ReadingLogs in export and import
 - [ ] Batch 7: rolling "Window" stats (Last 7 days, Last month, Last 12 months), then app size check, then release version 1
 - [ ] Background check polish (optional, when the library grows): short pause between series for
       TMDB rate limits, skip long-ended shows, show "last checked" time (needs a schema migration)

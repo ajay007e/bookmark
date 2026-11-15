@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/backup_service.dart';
 import '../providers.dart';
+import '../settings/app_info_provider.dart';
 import '../settings/daily_check_provider.dart';
+import '../settings/region_provider.dart';
 import '../settings/theme_provider.dart';
 import 'import_flow.dart';
 import 'widgets/accent_picker.dart';
 import 'widgets/app_nav_bar.dart';
 import 'widgets/premium_app_bar.dart';
+import 'widgets/region_sheet.dart';
 import 'widgets/settings_section.dart';
 import 'widgets/stats_card.dart';
 
@@ -62,6 +65,8 @@ class YouScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(themeModeProvider);
     final dailyCheck = ref.watch(dailyCheckProvider).asData?.value ?? true;
+    final region = ref.watch(regionProvider).asData?.value ?? defaultRegion;
+    final version = ref.watch(appVersionProvider).asData?.value ?? '';
 
     return Scaffold(
       appBar: const PremiumAppBar(title: 'You'),
@@ -133,14 +138,15 @@ class YouScreen extends ConsumerWidget {
             ],
           ),
 
-          const SettingsSection(
+          SettingsSection(
             title: 'Streaming',
             children: [
               SettingsTile(
                 icon: Icons.public,
                 title: 'Region',
-                subtitle: 'Australia (AU). More regions later',
-                soon: true,
+                subtitle: '${regionName(region)} ($region)',
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => showRegionSheet(context, ref),
               ),
             ],
           ),
@@ -168,10 +174,10 @@ class YouScreen extends ConsumerWidget {
           SettingsSection(
             title: 'About',
             children: [
-              const SettingsTile(
+              SettingsTile(
                 icon: Icons.info_outline,
                 title: 'Version',
-                subtitle: '1.0.0',
+                subtitle: version.isEmpty ? '...' : version,
               ),
               SettingsTile(
                 icon: Icons.favorite_outline,

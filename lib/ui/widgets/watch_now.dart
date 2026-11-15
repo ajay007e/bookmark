@@ -1,12 +1,14 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../api/detail_info.dart';
+import '../../settings/region_provider.dart';
 
-/// "Watch now": where it can be streamed, rented or bought in Australia.
+/// "Watch now": where it can be streamed, rented or bought in the chosen region.
 /// Pass null while the details are still loading.
-class WatchNowSection extends StatelessWidget {
+class WatchNowSection extends ConsumerWidget {
   const WatchNowSection({super.key, required this.options});
 
   final WatchOptions? options;
@@ -28,11 +30,13 @@ class WatchNowSection extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final o = options;
     if (o == null) return const SizedBox.shrink();
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
+    final country =
+    regionName(ref.watch(regionProvider).asData?.value ?? defaultRegion);
 
     return Padding(
       padding: const EdgeInsets.only(top: 20),
@@ -43,7 +47,7 @@ class WatchNowSection extends StatelessWidget {
           const SizedBox(height: 8),
           if (o.isEmpty)
             Text(
-              'Not on any streaming service in Australia right now.',
+              'Not on any streaming service in $country right now.',
               style: text.bodyMedium,
             )
           else ...[
