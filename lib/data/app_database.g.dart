@@ -168,6 +168,15 @@ class $MediaItemsTable extends MediaItems
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  @override
+  late final GeneratedColumnWithTypeConverter<ProgressUnit?, int> progressUnit =
+      GeneratedColumn<int>(
+        'progress_unit',
+        aliasedName,
+        true,
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      ).withConverter<ProgressUnit?>($MediaItemsTable.$converterprogressUnitn);
   static const VerificationMeta _dropReasonMeta = const VerificationMeta(
     'dropReason',
   );
@@ -232,6 +241,7 @@ class $MediaItemsTable extends MediaItems
     author,
     pageCount,
     currentPage,
+    progressUnit,
     dropReason,
     droppedAtPage,
     addedAt,
@@ -438,6 +448,12 @@ class $MediaItemsTable extends MediaItems
         DriftSqlType.int,
         data['${effectivePrefix}current_page'],
       )!,
+      progressUnit: $MediaItemsTable.$converterprogressUnitn.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.int,
+          data['${effectivePrefix}progress_unit'],
+        ),
+      ),
       dropReason: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}drop_reason'],
@@ -466,6 +482,10 @@ class $MediaItemsTable extends MediaItems
       const EnumIndexConverter<MediaType>(MediaType.values);
   static JsonTypeConverter2<Status, int, int> $converterstatus =
       const EnumIndexConverter<Status>(Status.values);
+  static JsonTypeConverter2<ProgressUnit, int, int> $converterprogressUnit =
+      const EnumIndexConverter<ProgressUnit>(ProgressUnit.values);
+  static JsonTypeConverter2<ProgressUnit?, int?, int?> $converterprogressUnitn =
+      JsonTypeConverter2.asNullable($converterprogressUnit);
 }
 
 class MediaItem extends DataClass implements Insertable<MediaItem> {
@@ -484,6 +504,7 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
   final String? author;
   final int? pageCount;
   final int currentPage;
+  final ProgressUnit? progressUnit;
   final String? dropReason;
   final int? droppedAtPage;
   final DateTime addedAt;
@@ -504,6 +525,7 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
     this.author,
     this.pageCount,
     required this.currentPage,
+    this.progressUnit,
     this.dropReason,
     this.droppedAtPage,
     required this.addedAt,
@@ -549,6 +571,11 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
       map['page_count'] = Variable<int>(pageCount);
     }
     map['current_page'] = Variable<int>(currentPage);
+    if (!nullToAbsent || progressUnit != null) {
+      map['progress_unit'] = Variable<int>(
+        $MediaItemsTable.$converterprogressUnitn.toSql(progressUnit),
+      );
+    }
     if (!nullToAbsent || dropReason != null) {
       map['drop_reason'] = Variable<String>(dropReason);
     }
@@ -591,6 +618,9 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
           ? const Value.absent()
           : Value(pageCount),
       currentPage: Value(currentPage),
+      progressUnit: progressUnit == null && nullToAbsent
+          ? const Value.absent()
+          : Value(progressUnit),
       dropReason: dropReason == null && nullToAbsent
           ? const Value.absent()
           : Value(dropReason),
@@ -627,6 +657,9 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
       author: serializer.fromJson<String?>(json['author']),
       pageCount: serializer.fromJson<int?>(json['pageCount']),
       currentPage: serializer.fromJson<int>(json['currentPage']),
+      progressUnit: $MediaItemsTable.$converterprogressUnitn.fromJson(
+        serializer.fromJson<int?>(json['progressUnit']),
+      ),
       dropReason: serializer.fromJson<String?>(json['dropReason']),
       droppedAtPage: serializer.fromJson<int?>(json['droppedAtPage']),
       addedAt: serializer.fromJson<DateTime>(json['addedAt']),
@@ -656,6 +689,9 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
       'author': serializer.toJson<String?>(author),
       'pageCount': serializer.toJson<int?>(pageCount),
       'currentPage': serializer.toJson<int>(currentPage),
+      'progressUnit': serializer.toJson<int?>(
+        $MediaItemsTable.$converterprogressUnitn.toJson(progressUnit),
+      ),
       'dropReason': serializer.toJson<String?>(dropReason),
       'droppedAtPage': serializer.toJson<int?>(droppedAtPage),
       'addedAt': serializer.toJson<DateTime>(addedAt),
@@ -679,6 +715,7 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
     Value<String?> author = const Value.absent(),
     Value<int?> pageCount = const Value.absent(),
     int? currentPage,
+    Value<ProgressUnit?> progressUnit = const Value.absent(),
     Value<String?> dropReason = const Value.absent(),
     Value<int?> droppedAtPage = const Value.absent(),
     DateTime? addedAt,
@@ -699,6 +736,7 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
     author: author.present ? author.value : this.author,
     pageCount: pageCount.present ? pageCount.value : this.pageCount,
     currentPage: currentPage ?? this.currentPage,
+    progressUnit: progressUnit.present ? progressUnit.value : this.progressUnit,
     dropReason: dropReason.present ? dropReason.value : this.dropReason,
     droppedAtPage: droppedAtPage.present
         ? droppedAtPage.value
@@ -727,6 +765,9 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
       currentPage: data.currentPage.present
           ? data.currentPage.value
           : this.currentPage,
+      progressUnit: data.progressUnit.present
+          ? data.progressUnit.value
+          : this.progressUnit,
       dropReason: data.dropReason.present
           ? data.dropReason.value
           : this.dropReason,
@@ -758,6 +799,7 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
           ..write('author: $author, ')
           ..write('pageCount: $pageCount, ')
           ..write('currentPage: $currentPage, ')
+          ..write('progressUnit: $progressUnit, ')
           ..write('dropReason: $dropReason, ')
           ..write('droppedAtPage: $droppedAtPage, ')
           ..write('addedAt: $addedAt, ')
@@ -783,6 +825,7 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
     author,
     pageCount,
     currentPage,
+    progressUnit,
     dropReason,
     droppedAtPage,
     addedAt,
@@ -807,6 +850,7 @@ class MediaItem extends DataClass implements Insertable<MediaItem> {
           other.author == this.author &&
           other.pageCount == this.pageCount &&
           other.currentPage == this.currentPage &&
+          other.progressUnit == this.progressUnit &&
           other.dropReason == this.dropReason &&
           other.droppedAtPage == this.droppedAtPage &&
           other.addedAt == this.addedAt &&
@@ -829,6 +873,7 @@ class MediaItemsCompanion extends UpdateCompanion<MediaItem> {
   final Value<String?> author;
   final Value<int?> pageCount;
   final Value<int> currentPage;
+  final Value<ProgressUnit?> progressUnit;
   final Value<String?> dropReason;
   final Value<int?> droppedAtPage;
   final Value<DateTime> addedAt;
@@ -849,6 +894,7 @@ class MediaItemsCompanion extends UpdateCompanion<MediaItem> {
     this.author = const Value.absent(),
     this.pageCount = const Value.absent(),
     this.currentPage = const Value.absent(),
+    this.progressUnit = const Value.absent(),
     this.dropReason = const Value.absent(),
     this.droppedAtPage = const Value.absent(),
     this.addedAt = const Value.absent(),
@@ -870,6 +916,7 @@ class MediaItemsCompanion extends UpdateCompanion<MediaItem> {
     this.author = const Value.absent(),
     this.pageCount = const Value.absent(),
     this.currentPage = const Value.absent(),
+    this.progressUnit = const Value.absent(),
     this.dropReason = const Value.absent(),
     this.droppedAtPage = const Value.absent(),
     this.addedAt = const Value.absent(),
@@ -893,6 +940,7 @@ class MediaItemsCompanion extends UpdateCompanion<MediaItem> {
     Expression<String>? author,
     Expression<int>? pageCount,
     Expression<int>? currentPage,
+    Expression<int>? progressUnit,
     Expression<String>? dropReason,
     Expression<int>? droppedAtPage,
     Expression<DateTime>? addedAt,
@@ -914,6 +962,7 @@ class MediaItemsCompanion extends UpdateCompanion<MediaItem> {
       if (author != null) 'author': author,
       if (pageCount != null) 'page_count': pageCount,
       if (currentPage != null) 'current_page': currentPage,
+      if (progressUnit != null) 'progress_unit': progressUnit,
       if (dropReason != null) 'drop_reason': dropReason,
       if (droppedAtPage != null) 'dropped_at_page': droppedAtPage,
       if (addedAt != null) 'added_at': addedAt,
@@ -937,6 +986,7 @@ class MediaItemsCompanion extends UpdateCompanion<MediaItem> {
     Value<String?>? author,
     Value<int?>? pageCount,
     Value<int>? currentPage,
+    Value<ProgressUnit?>? progressUnit,
     Value<String?>? dropReason,
     Value<int?>? droppedAtPage,
     Value<DateTime>? addedAt,
@@ -958,6 +1008,7 @@ class MediaItemsCompanion extends UpdateCompanion<MediaItem> {
       author: author ?? this.author,
       pageCount: pageCount ?? this.pageCount,
       currentPage: currentPage ?? this.currentPage,
+      progressUnit: progressUnit ?? this.progressUnit,
       dropReason: dropReason ?? this.dropReason,
       droppedAtPage: droppedAtPage ?? this.droppedAtPage,
       addedAt: addedAt ?? this.addedAt,
@@ -1017,6 +1068,11 @@ class MediaItemsCompanion extends UpdateCompanion<MediaItem> {
     if (currentPage.present) {
       map['current_page'] = Variable<int>(currentPage.value);
     }
+    if (progressUnit.present) {
+      map['progress_unit'] = Variable<int>(
+        $MediaItemsTable.$converterprogressUnitn.toSql(progressUnit.value),
+      );
+    }
     if (dropReason.present) {
       map['drop_reason'] = Variable<String>(dropReason.value);
     }
@@ -1050,6 +1106,7 @@ class MediaItemsCompanion extends UpdateCompanion<MediaItem> {
           ..write('author: $author, ')
           ..write('pageCount: $pageCount, ')
           ..write('currentPage: $currentPage, ')
+          ..write('progressUnit: $progressUnit, ')
           ..write('dropReason: $dropReason, ')
           ..write('droppedAtPage: $droppedAtPage, ')
           ..write('addedAt: $addedAt, ')
@@ -2217,11 +2274,7 @@ class WatchLog extends DataClass implements Insertable<WatchLog> {
   final int itemId;
   final int? episodeId;
   final DateTime watchedAt;
-
-  /// true = "watched now" (counts in the timeline), false = "watched earlier".
   final bool counted;
-
-  /// Runtime in minutes at the time it was logged (null for books).
   final int? minutes;
   const WatchLog({
     required this.id,
@@ -2441,6 +2494,506 @@ class WatchLogsCompanion extends UpdateCompanion<WatchLog> {
   }
 }
 
+class $ReadingLogsTable extends ReadingLogs
+    with TableInfo<$ReadingLogsTable, ReadingLog> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ReadingLogsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _itemIdMeta = const VerificationMeta('itemId');
+  @override
+  late final GeneratedColumn<int> itemId = GeneratedColumn<int>(
+    'item_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES media_items (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _readAtMeta = const VerificationMeta('readAt');
+  @override
+  late final GeneratedColumn<DateTime> readAt = GeneratedColumn<DateTime>(
+    'read_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _fromPageMeta = const VerificationMeta(
+    'fromPage',
+  );
+  @override
+  late final GeneratedColumn<int> fromPage = GeneratedColumn<int>(
+    'from_page',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _toPageMeta = const VerificationMeta('toPage');
+  @override
+  late final GeneratedColumn<int> toPage = GeneratedColumn<int>(
+    'to_page',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pagesMeta = const VerificationMeta('pages');
+  @override
+  late final GeneratedColumn<int> pages = GeneratedColumn<int>(
+    'pages',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _minutesMeta = const VerificationMeta(
+    'minutes',
+  );
+  @override
+  late final GeneratedColumn<int> minutes = GeneratedColumn<int>(
+    'minutes',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _inPercentMeta = const VerificationMeta(
+    'inPercent',
+  );
+  @override
+  late final GeneratedColumn<bool> inPercent = GeneratedColumn<bool>(
+    'in_percent',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("in_percent" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    itemId,
+    readAt,
+    fromPage,
+    toPage,
+    pages,
+    minutes,
+    inPercent,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'reading_logs';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ReadingLog> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('item_id')) {
+      context.handle(
+        _itemIdMeta,
+        itemId.isAcceptableOrUnknown(data['item_id']!, _itemIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_itemIdMeta);
+    }
+    if (data.containsKey('read_at')) {
+      context.handle(
+        _readAtMeta,
+        readAt.isAcceptableOrUnknown(data['read_at']!, _readAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_readAtMeta);
+    }
+    if (data.containsKey('from_page')) {
+      context.handle(
+        _fromPageMeta,
+        fromPage.isAcceptableOrUnknown(data['from_page']!, _fromPageMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_fromPageMeta);
+    }
+    if (data.containsKey('to_page')) {
+      context.handle(
+        _toPageMeta,
+        toPage.isAcceptableOrUnknown(data['to_page']!, _toPageMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_toPageMeta);
+    }
+    if (data.containsKey('pages')) {
+      context.handle(
+        _pagesMeta,
+        pages.isAcceptableOrUnknown(data['pages']!, _pagesMeta),
+      );
+    }
+    if (data.containsKey('minutes')) {
+      context.handle(
+        _minutesMeta,
+        minutes.isAcceptableOrUnknown(data['minutes']!, _minutesMeta),
+      );
+    }
+    if (data.containsKey('in_percent')) {
+      context.handle(
+        _inPercentMeta,
+        inPercent.isAcceptableOrUnknown(data['in_percent']!, _inPercentMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ReadingLog map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ReadingLog(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      itemId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}item_id'],
+      )!,
+      readAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}read_at'],
+      )!,
+      fromPage: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}from_page'],
+      )!,
+      toPage: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}to_page'],
+      )!,
+      pages: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}pages'],
+      ),
+      minutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}minutes'],
+      ),
+      inPercent: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}in_percent'],
+      )!,
+    );
+  }
+
+  @override
+  $ReadingLogsTable createAlias(String alias) {
+    return $ReadingLogsTable(attachedDatabase, alias);
+  }
+}
+
+class ReadingLog extends DataClass implements Insertable<ReadingLog> {
+  final int id;
+  final int itemId;
+  final DateTime readAt;
+  final int fromPage;
+  final int toPage;
+  final int? pages;
+  final int? minutes;
+  final bool inPercent;
+  const ReadingLog({
+    required this.id,
+    required this.itemId,
+    required this.readAt,
+    required this.fromPage,
+    required this.toPage,
+    this.pages,
+    this.minutes,
+    required this.inPercent,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['item_id'] = Variable<int>(itemId);
+    map['read_at'] = Variable<DateTime>(readAt);
+    map['from_page'] = Variable<int>(fromPage);
+    map['to_page'] = Variable<int>(toPage);
+    if (!nullToAbsent || pages != null) {
+      map['pages'] = Variable<int>(pages);
+    }
+    if (!nullToAbsent || minutes != null) {
+      map['minutes'] = Variable<int>(minutes);
+    }
+    map['in_percent'] = Variable<bool>(inPercent);
+    return map;
+  }
+
+  ReadingLogsCompanion toCompanion(bool nullToAbsent) {
+    return ReadingLogsCompanion(
+      id: Value(id),
+      itemId: Value(itemId),
+      readAt: Value(readAt),
+      fromPage: Value(fromPage),
+      toPage: Value(toPage),
+      pages: pages == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pages),
+      minutes: minutes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(minutes),
+      inPercent: Value(inPercent),
+    );
+  }
+
+  factory ReadingLog.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ReadingLog(
+      id: serializer.fromJson<int>(json['id']),
+      itemId: serializer.fromJson<int>(json['itemId']),
+      readAt: serializer.fromJson<DateTime>(json['readAt']),
+      fromPage: serializer.fromJson<int>(json['fromPage']),
+      toPage: serializer.fromJson<int>(json['toPage']),
+      pages: serializer.fromJson<int?>(json['pages']),
+      minutes: serializer.fromJson<int?>(json['minutes']),
+      inPercent: serializer.fromJson<bool>(json['inPercent']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'itemId': serializer.toJson<int>(itemId),
+      'readAt': serializer.toJson<DateTime>(readAt),
+      'fromPage': serializer.toJson<int>(fromPage),
+      'toPage': serializer.toJson<int>(toPage),
+      'pages': serializer.toJson<int?>(pages),
+      'minutes': serializer.toJson<int?>(minutes),
+      'inPercent': serializer.toJson<bool>(inPercent),
+    };
+  }
+
+  ReadingLog copyWith({
+    int? id,
+    int? itemId,
+    DateTime? readAt,
+    int? fromPage,
+    int? toPage,
+    Value<int?> pages = const Value.absent(),
+    Value<int?> minutes = const Value.absent(),
+    bool? inPercent,
+  }) => ReadingLog(
+    id: id ?? this.id,
+    itemId: itemId ?? this.itemId,
+    readAt: readAt ?? this.readAt,
+    fromPage: fromPage ?? this.fromPage,
+    toPage: toPage ?? this.toPage,
+    pages: pages.present ? pages.value : this.pages,
+    minutes: minutes.present ? minutes.value : this.minutes,
+    inPercent: inPercent ?? this.inPercent,
+  );
+  ReadingLog copyWithCompanion(ReadingLogsCompanion data) {
+    return ReadingLog(
+      id: data.id.present ? data.id.value : this.id,
+      itemId: data.itemId.present ? data.itemId.value : this.itemId,
+      readAt: data.readAt.present ? data.readAt.value : this.readAt,
+      fromPage: data.fromPage.present ? data.fromPage.value : this.fromPage,
+      toPage: data.toPage.present ? data.toPage.value : this.toPage,
+      pages: data.pages.present ? data.pages.value : this.pages,
+      minutes: data.minutes.present ? data.minutes.value : this.minutes,
+      inPercent: data.inPercent.present ? data.inPercent.value : this.inPercent,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ReadingLog(')
+          ..write('id: $id, ')
+          ..write('itemId: $itemId, ')
+          ..write('readAt: $readAt, ')
+          ..write('fromPage: $fromPage, ')
+          ..write('toPage: $toPage, ')
+          ..write('pages: $pages, ')
+          ..write('minutes: $minutes, ')
+          ..write('inPercent: $inPercent')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    itemId,
+    readAt,
+    fromPage,
+    toPage,
+    pages,
+    minutes,
+    inPercent,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ReadingLog &&
+          other.id == this.id &&
+          other.itemId == this.itemId &&
+          other.readAt == this.readAt &&
+          other.fromPage == this.fromPage &&
+          other.toPage == this.toPage &&
+          other.pages == this.pages &&
+          other.minutes == this.minutes &&
+          other.inPercent == this.inPercent);
+}
+
+class ReadingLogsCompanion extends UpdateCompanion<ReadingLog> {
+  final Value<int> id;
+  final Value<int> itemId;
+  final Value<DateTime> readAt;
+  final Value<int> fromPage;
+  final Value<int> toPage;
+  final Value<int?> pages;
+  final Value<int?> minutes;
+  final Value<bool> inPercent;
+  const ReadingLogsCompanion({
+    this.id = const Value.absent(),
+    this.itemId = const Value.absent(),
+    this.readAt = const Value.absent(),
+    this.fromPage = const Value.absent(),
+    this.toPage = const Value.absent(),
+    this.pages = const Value.absent(),
+    this.minutes = const Value.absent(),
+    this.inPercent = const Value.absent(),
+  });
+  ReadingLogsCompanion.insert({
+    this.id = const Value.absent(),
+    required int itemId,
+    required DateTime readAt,
+    required int fromPage,
+    required int toPage,
+    this.pages = const Value.absent(),
+    this.minutes = const Value.absent(),
+    this.inPercent = const Value.absent(),
+  }) : itemId = Value(itemId),
+       readAt = Value(readAt),
+       fromPage = Value(fromPage),
+       toPage = Value(toPage);
+  static Insertable<ReadingLog> custom({
+    Expression<int>? id,
+    Expression<int>? itemId,
+    Expression<DateTime>? readAt,
+    Expression<int>? fromPage,
+    Expression<int>? toPage,
+    Expression<int>? pages,
+    Expression<int>? minutes,
+    Expression<bool>? inPercent,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (itemId != null) 'item_id': itemId,
+      if (readAt != null) 'read_at': readAt,
+      if (fromPage != null) 'from_page': fromPage,
+      if (toPage != null) 'to_page': toPage,
+      if (pages != null) 'pages': pages,
+      if (minutes != null) 'minutes': minutes,
+      if (inPercent != null) 'in_percent': inPercent,
+    });
+  }
+
+  ReadingLogsCompanion copyWith({
+    Value<int>? id,
+    Value<int>? itemId,
+    Value<DateTime>? readAt,
+    Value<int>? fromPage,
+    Value<int>? toPage,
+    Value<int?>? pages,
+    Value<int?>? minutes,
+    Value<bool>? inPercent,
+  }) {
+    return ReadingLogsCompanion(
+      id: id ?? this.id,
+      itemId: itemId ?? this.itemId,
+      readAt: readAt ?? this.readAt,
+      fromPage: fromPage ?? this.fromPage,
+      toPage: toPage ?? this.toPage,
+      pages: pages ?? this.pages,
+      minutes: minutes ?? this.minutes,
+      inPercent: inPercent ?? this.inPercent,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (itemId.present) {
+      map['item_id'] = Variable<int>(itemId.value);
+    }
+    if (readAt.present) {
+      map['read_at'] = Variable<DateTime>(readAt.value);
+    }
+    if (fromPage.present) {
+      map['from_page'] = Variable<int>(fromPage.value);
+    }
+    if (toPage.present) {
+      map['to_page'] = Variable<int>(toPage.value);
+    }
+    if (pages.present) {
+      map['pages'] = Variable<int>(pages.value);
+    }
+    if (minutes.present) {
+      map['minutes'] = Variable<int>(minutes.value);
+    }
+    if (inPercent.present) {
+      map['in_percent'] = Variable<bool>(inPercent.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ReadingLogsCompanion(')
+          ..write('id: $id, ')
+          ..write('itemId: $itemId, ')
+          ..write('readAt: $readAt, ')
+          ..write('fromPage: $fromPage, ')
+          ..write('toPage: $toPage, ')
+          ..write('pages: $pages, ')
+          ..write('minutes: $minutes, ')
+          ..write('inPercent: $inPercent')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -2449,6 +3002,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $UserListsTable userLists = $UserListsTable(this);
   late final $ListEntriesTable listEntries = $ListEntriesTable(this);
   late final $WatchLogsTable watchLogs = $WatchLogsTable(this);
+  late final $ReadingLogsTable readingLogs = $ReadingLogsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2459,6 +3013,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     userLists,
     listEntries,
     watchLogs,
+    readingLogs,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -2497,6 +3052,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       ),
       result: [TableUpdate('watch_logs', kind: UpdateKind.delete)],
     ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'media_items',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('reading_logs', kind: UpdateKind.delete)],
+    ),
   ]);
 }
 
@@ -2516,6 +3078,7 @@ typedef $$MediaItemsTableCreateCompanionBuilder = MediaItemsCompanion Function({
   Value<String?> author,
   Value<int?> pageCount,
   Value<int> currentPage,
+  Value<ProgressUnit?> progressUnit,
   Value<String?> dropReason,
   Value<int?> droppedAtPage,
   Value<DateTime> addedAt,
@@ -2537,6 +3100,7 @@ typedef $$MediaItemsTableUpdateCompanionBuilder = MediaItemsCompanion Function({
   Value<String?> author,
   Value<int?> pageCount,
   Value<int> currentPage,
+  Value<ProgressUnit?> progressUnit,
   Value<String?> dropReason,
   Value<int?> droppedAtPage,
   Value<DateTime> addedAt,
@@ -2597,6 +3161,24 @@ final class $$MediaItemsTableReferences
     ).filter((f) => f.itemId.id.sqlEquals($_itemColumn<int>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_watchLogsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$ReadingLogsTable, List<ReadingLog>>
+  _readingLogsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.readingLogs,
+    aliasName: 'media_items__id__reading_logs__item_id',
+  );
+
+  $$ReadingLogsTableProcessedTableManager get readingLogsRefs {
+    final manager = $$ReadingLogsTableTableManager(
+      $_db,
+      $_db.readingLogs,
+    ).filter((f) => f.itemId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_readingLogsRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -2687,6 +3269,12 @@ class $$MediaItemsTableFilterComposer
   ColumnFilters<int> get currentPage => $composableBuilder(
     column: $table.currentPage,
     builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<ProgressUnit?, ProgressUnit, int>
+  get progressUnit => $composableBuilder(
+    column: $table.progressUnit,
+    builder: (column) => ColumnWithTypeConverterFilters(column),
   );
 
   ColumnFilters<String> get dropReason => $composableBuilder(
@@ -2783,6 +3371,31 @@ class $$MediaItemsTableFilterComposer
     );
     return f(composer);
   }
+
+  Expression<bool> readingLogsRefs(
+    Expression<bool> Function($$ReadingLogsTableFilterComposer f) f,
+  ) {
+    final $$ReadingLogsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.readingLogs,
+      getReferencedColumn: (t) => t.itemId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ReadingLogsTableFilterComposer(
+            $db: $db,
+            $table: $db.readingLogs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$MediaItemsTableOrderingComposer
@@ -2869,6 +3482,11 @@ class $$MediaItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get progressUnit => $composableBuilder(
+    column: $table.progressUnit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get dropReason => $composableBuilder(
     column: $table.dropReason,
     builder: (column) => ColumnOrderings(column),
@@ -2947,6 +3565,12 @@ class $$MediaItemsTableAnnotationComposer
     column: $table.currentPage,
     builder: (column) => column,
   );
+
+  GeneratedColumnWithTypeConverter<ProgressUnit?, int> get progressUnit =>
+      $composableBuilder(
+        column: $table.progressUnit,
+        builder: (column) => column,
+      );
 
   GeneratedColumn<String> get dropReason => $composableBuilder(
     column: $table.dropReason,
@@ -3040,6 +3664,31 @@ class $$MediaItemsTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> readingLogsRefs<T extends Object>(
+    Expression<T> Function($$ReadingLogsTableAnnotationComposer a) f,
+  ) {
+    final $$ReadingLogsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.readingLogs,
+      getReferencedColumn: (t) => t.itemId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ReadingLogsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.readingLogs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$MediaItemsTableTableManager
@@ -3059,6 +3708,7 @@ class $$MediaItemsTableTableManager
             bool episodesRefs,
             bool listEntriesRefs,
             bool watchLogsRefs,
+            bool readingLogsRefs,
           })
         > {
   $$MediaItemsTableTableManager(_$AppDatabase db, $MediaItemsTable table)
@@ -3089,6 +3739,7 @@ class $$MediaItemsTableTableManager
                 Value<String?> author = const Value.absent(),
                 Value<int?> pageCount = const Value.absent(),
                 Value<int> currentPage = const Value.absent(),
+                Value<ProgressUnit?> progressUnit = const Value.absent(),
                 Value<String?> dropReason = const Value.absent(),
                 Value<int?> droppedAtPage = const Value.absent(),
                 Value<DateTime> addedAt = const Value.absent(),
@@ -3109,6 +3760,7 @@ class $$MediaItemsTableTableManager
                 author: author,
                 pageCount: pageCount,
                 currentPage: currentPage,
+                progressUnit: progressUnit,
                 dropReason: dropReason,
                 droppedAtPage: droppedAtPage,
                 addedAt: addedAt,
@@ -3131,6 +3783,7 @@ class $$MediaItemsTableTableManager
                 Value<String?> author = const Value.absent(),
                 Value<int?> pageCount = const Value.absent(),
                 Value<int> currentPage = const Value.absent(),
+                Value<ProgressUnit?> progressUnit = const Value.absent(),
                 Value<String?> dropReason = const Value.absent(),
                 Value<int?> droppedAtPage = const Value.absent(),
                 Value<DateTime> addedAt = const Value.absent(),
@@ -3151,6 +3804,7 @@ class $$MediaItemsTableTableManager
                 author: author,
                 pageCount: pageCount,
                 currentPage: currentPage,
+                progressUnit: progressUnit,
                 dropReason: dropReason,
                 droppedAtPage: droppedAtPage,
                 addedAt: addedAt,
@@ -3169,6 +3823,7 @@ class $$MediaItemsTableTableManager
                 episodesRefs = false,
                 listEntriesRefs = false,
                 watchLogsRefs = false,
+                readingLogsRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -3176,15 +3831,17 @@ class $$MediaItemsTableTableManager
                     if (episodesRefs) db.episodes,
                     if (listEntriesRefs) db.listEntries,
                     if (watchLogsRefs) db.watchLogs,
+                    if (readingLogsRefs) db.readingLogs,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
                     return [
                       if (episodesRefs)
-                        await $_getPrefetchedData<
+                        await $_getPrefetchedDataByColumns<
                           MediaItem,
                           $MediaItemsTable,
-                          Episode
+                          Episode,
+                          $EpisodesTable
                         >(
                           currentTable: table,
                           referencedTable: $$MediaItemsTableReferences
@@ -3195,17 +3852,16 @@ class $$MediaItemsTableTableManager
                                 table,
                                 p0,
                               ).episodesRefs,
-                          referencedItemsForCurrentItem:
-                              (item, referencedItems) => referencedItems.where(
-                                (e) => e.seriesId == item.id,
-                              ),
+                          currentColumn: 'id',
+                          referencedColumn: 'series_id',
                           typedResults: items,
                         ),
                       if (listEntriesRefs)
-                        await $_getPrefetchedData<
+                        await $_getPrefetchedDataByColumns<
                           MediaItem,
                           $MediaItemsTable,
-                          ListEntry
+                          ListEntry,
+                          $ListEntriesTable
                         >(
                           currentTable: table,
                           referencedTable: $$MediaItemsTableReferences
@@ -3216,17 +3872,16 @@ class $$MediaItemsTableTableManager
                                 table,
                                 p0,
                               ).listEntriesRefs,
-                          referencedItemsForCurrentItem:
-                              (item, referencedItems) => referencedItems.where(
-                                (e) => e.itemId == item.id,
-                              ),
+                          currentColumn: 'id',
+                          referencedColumn: 'item_id',
                           typedResults: items,
                         ),
                       if (watchLogsRefs)
-                        await $_getPrefetchedData<
+                        await $_getPrefetchedDataByColumns<
                           MediaItem,
                           $MediaItemsTable,
-                          WatchLog
+                          WatchLog,
+                          $WatchLogsTable
                         >(
                           currentTable: table,
                           referencedTable: $$MediaItemsTableReferences
@@ -3237,10 +3892,28 @@ class $$MediaItemsTableTableManager
                                 table,
                                 p0,
                               ).watchLogsRefs,
-                          referencedItemsForCurrentItem:
-                              (item, referencedItems) => referencedItems.where(
-                                (e) => e.itemId == item.id,
-                              ),
+                          currentColumn: 'id',
+                          referencedColumn: 'item_id',
+                          typedResults: items,
+                        ),
+                      if (readingLogsRefs)
+                        await $_getPrefetchedDataByColumns<
+                          MediaItem,
+                          $MediaItemsTable,
+                          ReadingLog,
+                          $ReadingLogsTable
+                        >(
+                          currentTable: table,
+                          referencedTable: $$MediaItemsTableReferences
+                              ._readingLogsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$MediaItemsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).readingLogsRefs,
+                          currentColumn: 'id',
+                          referencedColumn: 'item_id',
                           typedResults: items,
                         ),
                     ];
@@ -3267,6 +3940,7 @@ typedef $$MediaItemsTableProcessedTableManager =
         bool episodesRefs,
         bool listEntriesRefs,
         bool watchLogsRefs,
+        bool readingLogsRefs,
       })
     >;
 typedef $$EpisodesTableCreateCompanionBuilder = EpisodesCompanion Function({
@@ -3704,10 +4378,11 @@ class $$EpisodesTableTableManager
               getPrefetchedDataCallback: (items) async {
                 return [
                   if (watchLogsRefs)
-                    await $_getPrefetchedData<
+                    await $_getPrefetchedDataByColumns<
                       Episode,
                       $EpisodesTable,
-                      WatchLog
+                      WatchLog,
+                      $WatchLogsTable
                     >(
                       currentTable: table,
                       referencedTable: $$EpisodesTableReferences
@@ -3717,8 +4392,8 @@ class $$EpisodesTableTableManager
                         table,
                         p0,
                       ).watchLogsRefs,
-                      referencedItemsForCurrentItem: (item, referencedItems) =>
-                          referencedItems.where((e) => e.episodeId == item.id),
+                      currentColumn: 'id',
+                      referencedColumn: 'episode_id',
                       typedResults: items,
                     ),
                 ];
@@ -3931,10 +4606,11 @@ class $$UserListsTableTableManager
               getPrefetchedDataCallback: (items) async {
                 return [
                   if (listEntriesRefs)
-                    await $_getPrefetchedData<
+                    await $_getPrefetchedDataByColumns<
                       UserList,
                       $UserListsTable,
-                      ListEntry
+                      ListEntry,
+                      $ListEntriesTable
                     >(
                       currentTable: table,
                       referencedTable: $$UserListsTableReferences
@@ -3945,8 +4621,8 @@ class $$UserListsTableTableManager
                             table,
                             p0,
                           ).listEntriesRefs,
-                      referencedItemsForCurrentItem: (item, referencedItems) =>
-                          referencedItems.where((e) => e.listId == item.id),
+                      currentColumn: 'id',
+                      referencedColumn: 'list_id',
                       typedResults: items,
                     ),
                 ];
@@ -4723,6 +5399,372 @@ typedef $$WatchLogsTableProcessedTableManager =
       WatchLog,
       PrefetchHooks Function({bool itemId, bool episodeId})
     >;
+typedef $$ReadingLogsTableCreateCompanionBuilder =
+    ReadingLogsCompanion Function({
+      Value<int> id,
+      required int itemId,
+      required DateTime readAt,
+      required int fromPage,
+      required int toPage,
+      Value<int?> pages,
+      Value<int?> minutes,
+      Value<bool> inPercent,
+    });
+typedef $$ReadingLogsTableUpdateCompanionBuilder =
+    ReadingLogsCompanion Function({
+      Value<int> id,
+      Value<int> itemId,
+      Value<DateTime> readAt,
+      Value<int> fromPage,
+      Value<int> toPage,
+      Value<int?> pages,
+      Value<int?> minutes,
+      Value<bool> inPercent,
+    });
+
+final class $$ReadingLogsTableReferences
+    extends BaseReferences<_$AppDatabase, $ReadingLogsTable, ReadingLog> {
+  $$ReadingLogsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $MediaItemsTable _itemIdTable(_$AppDatabase db) =>
+      db.mediaItems.createAlias('reading_logs__item_id__media_items__id');
+
+  $$MediaItemsTableProcessedTableManager get itemId {
+    final $_column = $_itemColumn<int>('item_id')!;
+
+    final manager = $$MediaItemsTableTableManager(
+      $_db,
+      $_db.mediaItems,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_itemIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$ReadingLogsTableFilterComposer
+    extends Composer<_$AppDatabase, $ReadingLogsTable> {
+  $$ReadingLogsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get readAt => $composableBuilder(
+    column: $table.readAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get fromPage => $composableBuilder(
+    column: $table.fromPage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get toPage => $composableBuilder(
+    column: $table.toPage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get pages => $composableBuilder(
+    column: $table.pages,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get minutes => $composableBuilder(
+    column: $table.minutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get inPercent => $composableBuilder(
+    column: $table.inPercent,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$MediaItemsTableFilterComposer get itemId {
+    final $$MediaItemsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.itemId,
+      referencedTable: $db.mediaItems,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MediaItemsTableFilterComposer(
+            $db: $db,
+            $table: $db.mediaItems,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ReadingLogsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ReadingLogsTable> {
+  $$ReadingLogsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get readAt => $composableBuilder(
+    column: $table.readAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get fromPage => $composableBuilder(
+    column: $table.fromPage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get toPage => $composableBuilder(
+    column: $table.toPage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get pages => $composableBuilder(
+    column: $table.pages,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get minutes => $composableBuilder(
+    column: $table.minutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get inPercent => $composableBuilder(
+    column: $table.inPercent,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$MediaItemsTableOrderingComposer get itemId {
+    final $$MediaItemsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.itemId,
+      referencedTable: $db.mediaItems,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MediaItemsTableOrderingComposer(
+            $db: $db,
+            $table: $db.mediaItems,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ReadingLogsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ReadingLogsTable> {
+  $$ReadingLogsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get readAt =>
+      $composableBuilder(column: $table.readAt, builder: (column) => column);
+
+  GeneratedColumn<int> get fromPage =>
+      $composableBuilder(column: $table.fromPage, builder: (column) => column);
+
+  GeneratedColumn<int> get toPage =>
+      $composableBuilder(column: $table.toPage, builder: (column) => column);
+
+  GeneratedColumn<int> get pages =>
+      $composableBuilder(column: $table.pages, builder: (column) => column);
+
+  GeneratedColumn<int> get minutes =>
+      $composableBuilder(column: $table.minutes, builder: (column) => column);
+
+  GeneratedColumn<bool> get inPercent =>
+      $composableBuilder(column: $table.inPercent, builder: (column) => column);
+
+  $$MediaItemsTableAnnotationComposer get itemId {
+    final $$MediaItemsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.itemId,
+      referencedTable: $db.mediaItems,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MediaItemsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.mediaItems,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ReadingLogsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ReadingLogsTable,
+          ReadingLog,
+          $$ReadingLogsTableFilterComposer,
+          $$ReadingLogsTableOrderingComposer,
+          $$ReadingLogsTableAnnotationComposer,
+          $$ReadingLogsTableCreateCompanionBuilder,
+          $$ReadingLogsTableUpdateCompanionBuilder,
+          (ReadingLog, $$ReadingLogsTableReferences),
+          ReadingLog,
+          PrefetchHooks Function({bool itemId})
+        > {
+  $$ReadingLogsTableTableManager(_$AppDatabase db, $ReadingLogsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ReadingLogsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ReadingLogsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ReadingLogsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> itemId = const Value.absent(),
+                Value<DateTime> readAt = const Value.absent(),
+                Value<int> fromPage = const Value.absent(),
+                Value<int> toPage = const Value.absent(),
+                Value<int?> pages = const Value.absent(),
+                Value<int?> minutes = const Value.absent(),
+                Value<bool> inPercent = const Value.absent(),
+              }) => ReadingLogsCompanion(
+                id: id,
+                itemId: itemId,
+                readAt: readAt,
+                fromPage: fromPage,
+                toPage: toPage,
+                pages: pages,
+                minutes: minutes,
+                inPercent: inPercent,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int itemId,
+                required DateTime readAt,
+                required int fromPage,
+                required int toPage,
+                Value<int?> pages = const Value.absent(),
+                Value<int?> minutes = const Value.absent(),
+                Value<bool> inPercent = const Value.absent(),
+              }) => ReadingLogsCompanion.insert(
+                id: id,
+                itemId: itemId,
+                readAt: readAt,
+                fromPage: fromPage,
+                toPage: toPage,
+                pages: pages,
+                minutes: minutes,
+                inPercent: inPercent,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$ReadingLogsTable, ReadingLog>(table),
+                  $$ReadingLogsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({itemId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (itemId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.itemId,
+                        referencedTable: $$ReadingLogsTableReferences
+                            ._itemIdTable(db),
+                        referencedColumn: $$ReadingLogsTableReferences
+                            ._itemIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$ReadingLogsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ReadingLogsTable,
+      ReadingLog,
+      $$ReadingLogsTableFilterComposer,
+      $$ReadingLogsTableOrderingComposer,
+      $$ReadingLogsTableAnnotationComposer,
+      $$ReadingLogsTableCreateCompanionBuilder,
+      $$ReadingLogsTableUpdateCompanionBuilder,
+      (ReadingLog, $$ReadingLogsTableReferences),
+      ReadingLog,
+      PrefetchHooks Function({bool itemId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -4737,4 +5779,6 @@ class $AppDatabaseManager {
       $$ListEntriesTableTableManager(_db, _db.listEntries);
   $$WatchLogsTableTableManager get watchLogs =>
       $$WatchLogsTableTableManager(_db, _db.watchLogs);
+  $$ReadingLogsTableTableManager get readingLogs =>
+      $$ReadingLogsTableTableManager(_db, _db.readingLogs);
 }

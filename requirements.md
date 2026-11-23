@@ -10,16 +10,19 @@ No login or accounts. All data lives in a local database on the phone.
 - Ubuntu, Flutter installed with snap, Android Studio as the editor (not VS Code)
 - I am new to Flutter and Dart: explain commands and new concepts briefly
 - Give complete files with the file path above each one, and tell me how to run and check each step
+- In new complete files, remove comments unless a comment is really needed
 - Build in small steps
 - At the end of each reply, list completed and pending tasks. A task stays pending until I confirm it works.
-- Some code written in chat needed small fixes for the latest package versions (for example `file_picker`).
-  The project files are the source of truth: when a change touches a file I may have edited, ask me to paste it.
+- Some code written in chat needed small fixes for the latest package versions (for example `file_picker`,
+  `deleteNotificationChannel(channelId: ...)`). The project files are the source of truth: when a change
+  touches a file I may have edited, ask me to paste it.
 
 ## Stack
 
 - Flutter (Android only), Dart package name `bookmark`, app display name "Bookmark"
-- Drift (SQLite) for the local database, with drift_flutter. Schema version 2 for now (Batch 5 moves it to 3).
+- Drift (SQLite) for the local database, with drift_flutter. Schema version 3.
   (Drift's SQLite is not visible in Android Studio's Database Inspector, so test through logs or in-app helpers.)
+  After a table change run `dart run build_runner build --delete-conflicting-outputs`.
 - flutter_riverpod for state
 - go_router for navigation (item, preview, genre, list and stats pages)
 - convex_bottom_bar for the bottom navigation bar
@@ -27,9 +30,9 @@ No login or accounts. All data lives in a local database on the phone.
 - dio for API calls
 - url_launcher for the "Watch now" links
 - workmanager for the daily new-episode check
-- flutter_local_notifications for new-episode notifications
+- flutter_local_notifications and timezone for notifications (new episodes, reading session)
 - shared_preferences (`SharedPreferencesAsync`, safe to use from the app and the worker) for the last-check
-  time, the daily check switch, the theme, the accent colour and the streaming region
+  time, the daily check switch, the theme, the accent colour, the streaming region and the running reading session
 - share_plus and path_provider for the JSON export (Android share sheet, no storage permission)
 - file_picker for choosing a backup file to import (no storage permission)
 - package_info_plus for the real app version in About
@@ -40,8 +43,18 @@ No login or accounts. All data lives in a local database on the phone.
 
 ## Android setup
 
-- `AndroidManifest.xml` has the app label `Bookmark` (capital B) and the `POST_NOTIFICATIONS` permission
-  (needed on Android 13+).
+- `AndroidManifest.xml` has the app label `Bookmark` (capital B) and these permissions:
+  `POST_NOTIFICATIONS` (Android 13+), `VIBRATE`, `WAKE_LOCK`, `USE_FULL_SCREEN_INTENT`, `USE_EXACT_ALARM`, and
+  `SCHEDULE_EXACT_ALARM` limited to Android 12 and lower (`maxSdkVersion="32"`).
+  `USE_EXACT_ALARM` is granted automatically on Android 13+ (no "Alarms & reminders" toggle). If the app is ever
+  published on Google Play, this permission needs a justification (Play restricts it to alarm and calendar apps);
+  otherwise use `SCHEDULE_EXACT_ALARM` only.
+- The main activity has `showWhenLocked` and `turnScreenOn` so a reading check-in can appear over the lock screen.
+- The `ScheduledNotificationReceiver` of flutter_local_notifications is declared inside `<application>`
+  (as a sibling of `<activity>`, never inside it).
+- On Android 14, allow "Full screen notifications" for Bookmark in Settings > Apps > Bookmark > Notifications if the
+  alarm only shows as a banner. Set Bookmark's battery use to Unrestricted for on-time alarms (OnePlus: also allow
+  background activity and auto-launch).
 - `android/app/build.gradle.kts` enables core library desugaring
   (`isCoreLibraryDesugaringEnabled = true` and `coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")`),
   which flutter_local_notifications needs to build.
@@ -54,9 +67,8 @@ One enum in code: want, inProgress, done, dropped.
 - Series: Want to watch, Watching, Watched. The status follows the episodes automatically.
 - Books: Want to read, Reading, Read, Did not complete
 - Series are tracked per episode (season number, episode number, watched flag and date)
-- Did not complete books: optional reason and page stopped at
-- Books have no page-progress tracking yet. Only the stop page is recorded, when a book is not completed.
-  (Progress tracking is planned in Batch 5.)
+- Did not complete books: optional reason and page stopped at (prefilled from the reading progress)
+- Books have progress tracking (see Reading tracking).
 
 ### Series status rules
 
@@ -91,7 +103,8 @@ long press on the tick. **Unsupported options are shown disabled** (greyed, with
   - Movie: tap on the tick = Watched now directly (saves the movie, marks it watched now) with an Undo
     snackbar. The snackbar goes away by itself after 5 seconds and has no close button. Undo deletes the
     movie again (with its history). Long press or "⋮": Want to watch, Watched earlier, Add to list.
-  - Book: tap on the tick = add to Want to read. Long press or "⋮": Reading, Read now, Read earlier, Add to list.
+  - Book: tap on the tick = add to Want to read. Long press or "⋮": Want to read, Reading (asks for the progress
+    first, page or percent is mandatory, nothing is saved if cancelled), Read now, Read earlier, Add to list.
   - Series: tap on the tick = add to Want to watch (saved with all its episodes). Long press or "⋮": Add to
     list, Mark aired episodes watched now / earlier (Mark all unwatched and Remove are disabled).
   - Any option saves the item first (as Want), then applies. The page then switches to the saved item
@@ -104,12 +117,16 @@ long press on the tick. **Unsupported options are shown disabled** (greyed, with
     Watched earlier, Add to list, Remove.
   - Watched: tap = back to Want (asks first, **deletes all history rows** of the movie, so stats drop).
     Menu: Watched again now, Add to list, Remove.
-- **Book (saved):**
-  - Want: tap = Reading. Reading: tap = Read now. Read: tap = back to Want (asks first, deletes all history).
-  - Did not complete: tap = Reading.
-  - Menu (Want, Did not complete): Reading, Read now, Read earlier, Add to list, Remove.
-    Menu (Reading): Read now, Read earlier, Did not complete, Add to list, Remove.
-    Menu (Read): Read again now, Add to list, Remove.
+- **Book (saved), life cycle:**
+  - Want to read: menu Reading, Read now, Read earlier, Add to list, Remove. Tap on the tick opens the
+    "Start reading" progress sheet (Reading needs a progress, page or percent).
+  - Reading: menu Read now, Update progress, Did not complete, Add to list, Remove. Tap on the tick = Read now.
+    The round session button sits beside the tick (see Reading session).
+  - Read: menu Reading again, Read again now, Add to list, Remove. Reading again starts a new reading cycle at 0.
+    Tap on the tick = back to Want to read (asks first, deletes all history and resets the progress).
+  - Did not complete: menu Reading, Read now, Add to list, Remove. Tap on the tick opens the "Start reading" sheet,
+    prefilled from the saved progress.
+  - There is no Read earlier in the Reading, Read and Did not complete menus.
 - **Series (saved):** the tick is a disabled status icon (Want / Watching / Watched); the status
   follows the episodes. The "⋮" menu holds: Add to list, Mark aired episodes watched now, Mark aired
   episodes watched earlier, Mark all episodes unwatched (asks first, disabled when nothing is marked),
@@ -137,6 +154,68 @@ long press on the tick. **Unsupported options are shown disabled** (greyed, with
   `lib/ui/draft_saving.dart` (the "saving an unsaved series" flag),
   `lib/data/mark_queries.dart` (back to Want), `lib/ui/widgets/watch_tick.dart`,
   `lib/ui/widgets/item_menu_button.dart`, `lib/ui/widgets/season_button.dart`, `lib/ui/widgets/episode_card.dart`.
+
+## Reading tracking (schema 3)
+
+Code: `lib/data/reading_queries.dart` (progress logic), `lib/ui/reading_actions.dart`,
+`lib/ui/widgets/progress_sheet.dart`.
+
+- **Unit per book:** Pages or Percent, saved per book (`MediaItems.progressUnit`). The page count comes from the
+  database (Open Library) and can be edited in the progress sheet, because the edition may differ. With no
+  page count (not from the API and not typed) only Percent is available. Typing a page count (the only typing
+  here) enables Pages and converts earlier percent log rows to pages. Switching the unit converts the current value
+  with the page count. The current value is saved in `currentPage`.
+- **Progress sheet** (Start reading and Update progress): Pages / Percent selector, Total pages (Add or Edit),
+  a slider with -10 / -1 / +1 / +10 buttons, and optional time spent chips (None, 15, 30, 45, 60, 90 min). The time
+  is read-only (fixed) when it comes from a reading session. Moving backwards corrects the progress and logs
+  nothing. Reaching the last page or 100% asks "Finished? Mark as read now" (never automatic, "No" keeps Reading).
+- **Entry points:** the "Update progress" option in the menu of a Reading book, a long press on the session
+  button (no session running), the Home hero card, and the mandatory update after an automatic stop. Saving
+  progress on a book sets it to Reading.
+- **Rules:** Read now credits the remaining pages to today. Read earlier credits nothing. Read again now credits the
+  full page count. Did not complete: the stop page is prefilled from the progress, and the pages stay in the
+  stats. Back to Want deletes the reading log rows and resets the progress to 0.
+- **ReadingLogs** (itemId, readAt, fromPage, toPage, pages, minutes, inPercent): one row per forward progress
+  move or timed update. `pages` is empty for a book with no page count (its rows are in percent).
+
+## Reading session (focus timer)
+
+Code: `lib/reading/reading_session_provider.dart`, `lib/ui/session_actions.dart`,
+`lib/ui/widgets/session_button.dart`, `lib/ui/widgets/session_card.dart` (`ElapsedText`, `HeroSessionButton`),
+`lib/ui/check_in_dialog.dart`, `lib/background/notifications.dart`, `lib/main.dart`.
+
+- **Session button:** on the book page, while the book is Reading, a round button sits beside the tick (the title
+  row gives it extra width, `TitleRow.trailingWidth`). No session: a progress ring with the percentage inside.
+  Tap = start a session. Long press = Update progress sheet. Session running: the ring is filled and the
+  elapsed time counts inside it (`12:34`, `1h05`). Tap = stop the session and open the progress sheet with the
+  time fixed (cancelling keeps the session running). Long press does nothing while running. The button has no tooltip,
+  because a tooltip also fires on long press.
+- **Hero card of a Reading book:** progress bar, "Page X/Y" (or "X%"), an Update progress button beside the tick,
+  and a Start session / elapsed time button.
+- **Counting:** from the saved start time (not from a ticking counter), so it survives a locked screen and a closed
+  app. The session is saved in SharedPreferencesAsync (`readingSession`). Only one session runs at a time.
+- **Check-in:** every 15 minutes (`checkInEvery`) the app asks "Still reading?" and the user has 2 minutes
+  (`answerWithin`) to answer. The check-in popup fires at the exact second (a one-shot timer).
+  - App open: a red alarm-style dialog with a shrinking countdown ring, big countdown and vibration each second.
+    "Yes, still reading" continues, "Stop session" or running out of time stops the session.
+  - Phone locked or app in the background: an alarm notification on the channel `reading_alarm_v3`
+    ("Reading alarm (sound)", created at startup with the default alarm ringtone and alarm audio usage,
+    insistent, full-screen, vibration pattern, live countdown). It is scheduled in alarm-clock mode (exact) and
+    rings until the user answers; it is cancelled only after the answer. At the deadline a "Reading session stopped"
+    notification is shown. The alarms are rescheduled every time the app resumes.
+  - The alarm follows the alarm volume of the phone.
+- **Automatic stop:** the time counted is up to the last confirmation. It is saved as a pending update
+  (`readingPendingUpdate`) and nothing is logged yet. The next time the app is in front of the user (or on launch),
+  a **mandatory** progress sheet opens: not dismissible (no cancel, no swipe, back blocked), time fixed, only a
+  "Save progress" button. Until it is saved nothing else in the app can be used.
+- **Running notification:** an ongoing, silent notification "Reading session" with the book title, a counting
+  chronometer and a **Stop** button (opens the app on the stop flow, also from a closed app). Tapping the
+  notification opens the book. It is rebuilt when the app resumes. Channel: "Reading timer".
+- **Manual stop** or finishing the book from the "Finished?" prompt ends the session. Marking the book Read or Did
+  not complete while a session runs drops that session's minutes (stop the session first).
+- **Channels:** Reading alarm (sound), Reading timer, Reading sessions (the stopped notice), New episodes.
+  The old channels `reading_checkin_alarm` and `reading_checkin_alarm_v2` are deleted at startup.
+- Optional later: a big Clock-style number notification needs native Android code (a custom layout).
 
 ## Input rules
 
@@ -193,6 +272,7 @@ One scrolling page: stats on top, then grouped settings.
   top right shows the period (for example "Week ▾") and opens a bottom sheet ("Show stats for") with
   Week, Month, Year and All time (icon, short description, tick on the chosen one). Tapping the card opens
   `/stats?period=` with the chosen period. There are no period pills on the card and no "Detailed stats" button.
+  The card has no Pages read tile: the reading numbers live in the Books view of the Stats page.
 - **Appearance:** theme (System / Light / Dark) and accent colour (16 colours in one sideways row).
   Both are saved with SharedPreferencesAsync and applied to the whole app.
 - **New episodes:** "Daily check" switch, on by default, saved as `dailyCheckEnabled`
@@ -205,9 +285,9 @@ One scrolling page: stats on top, then grouped settings.
   is tried first, then the US. Open detail pages reload when it changes. Another country is added with one
   line in the `regions` list.
 - **Backup and data:** Export to JSON and Import from JSON, both working (see Backup below).
-- **About:** the real version, for example "1.0.0 (1)", read from the `version:` line in pubspec.yaml with
-  package_info_plus (`lib/settings/app_info_provider.dart`), and a "Credits and data sources" sheet
-  (TMDB notice, JustWatch line, Open Library).
+- **About:** the real semantic version, for example "1.0.0" (the build number after the `+` in pubspec.yaml is
+  not shown), read with package_info_plus (`lib/settings/app_info_provider.dart`), and a
+  "Credits and data sources" sheet (TMDB notice, JustWatch line, Open Library).
 
 ## Stats
 
@@ -216,10 +296,17 @@ One scrolling page: stats on top, then grouped settings.
 - On the detailed page the four period chips share the full width equally (no empty space on the right).
 - Each view has tiles, an activity chart (days for Week and Month, months for Year, years for All time)
   and top genres (ranked by number of different titles). All also shows movies vs series split.
-  Books show book counts, pages read, average pages and most read author.
-- Only WatchLogs rows with counted = true are counted. A rewatch counts again. Books are counted, not
-  timed. "Did not complete" is an all-time number.
-- Code: `lib/data/stats_queries.dart` (query), `lib/stats/stats_models.dart` (periods, filters and all
+- Only WatchLogs rows with counted = true are counted. A rewatch counts again. "Did not complete" is an
+  all-time number.
+- **Books view** (uses ReadingLogs): Books read, Different books, **Pages read** (pages actually logged),
+  **Reading days**, **Avg pages per day**, **Reading time** (only if any time was logged), **Current streak**,
+  **Longest streak**, Most read author, Did not complete. Pages, days, average and time follow the selected period;
+  streaks use the whole reading history (a day counts if it has any reading log, the current streak stays alive
+  if the user read today or yesterday). The activity chart shows pages per day, month or year, with
+  "Busiest day ... N pages". Books with no page count count for reading days, streaks, time and finished, not for
+  pages (small footnote on the stats screen). The words "watch time" are never used for books.
+  No reading goals and no estimated reading time.
+- Code: `lib/data/stats_queries.dart` (queries), `lib/stats/stats_models.dart` (periods, filters and all
   the numbers), `lib/stats/stats_provider.dart` (providers), `lib/ui/stats_screen.dart`,
   `lib/ui/widgets/stats_card.dart`. `StatsPeriod` is defined only in `stats_models.dart`.
 - Planned (Batch 7): a "Window" option. Off (default): Week, Month and Year are the current calendar week,
@@ -227,58 +314,41 @@ One scrolling page: stats on top, then grouped settings.
   back from today (28, 29, 30 or 31 days), and Last 12 months. All time is the same. Charts stay by day
   for 7 days and a month, and by month for 12 months. The switch sits in the period sheet on the You card
   and on the Stats page, is saved in SharedPreferencesAsync, and both screens share the choice.
-- Planned (Batch 5): reading stats (see Reading tracking below).
-
-## Reading tracking (planned, Batch 5, schema 3)
-
-- Per book progress unit: Pages (default when a page count is known) or Percent (default when not; the
-  Kindle mode). Locations are not supported. Switching unit converts using the page count. Optional: type
-  a page count for a book that has none (the only typing); once set, percent entries convert to pages.
-- Book page: Progress card (page X of Y, %, bar, Update button) while Reading. Update sheet: slider with
-  -10/-1/+1/+10 and optional time spent chips (None, 15, 30, 45, 60, 90). Moving backwards corrects the page
-  and logs nothing. Reaching the last page or 100% asks "Finished? Mark as read now" (never automatic).
-- "Update progress" in the long-press menu for Want and Reading books. Saving on a Want book sets it to Reading.
-- Hero card for a Reading book: bar, "Page X/Y" (or "X%"), an Update progress button beside the tick.
-- Rules: Read now credits the remaining pages to today. Read earlier credits nothing. Read again now credits
-  the full page count. Did not complete: stop page prefilled from progress, pages stay in stats. Back to
-  Want: deletes the reading log and resets progress.
-- New table ReadingLogs (itemId, readAt, fromPage, toPage, pages, minutes), new column for the progress
-  unit on MediaItems, schema 3 migration. Reuse `currentPage` for the current value.
-- ReadingLogs and the progress unit are added to the JSON export and import in this batch. A backup made
-  before it still imports (no reading history).
-- Stats, Books view: pages read, reading days, average pages per reading day, current and longest streak,
-  reading time (only if logged), and a pages chart. The You card gets a Pages read tile. Books with no page
-  count count for reading days, streaks, time and finished, not for pages (small footnote on the stats
-  screen). Never say "watch time" for books. No reading goals and no estimated reading time for now.
 
 ## Backup (You > Backup and data)
 
 Code: `lib/data/export_queries.dart`, `lib/data/backup_service.dart` (export),
 `lib/data/import_queries.dart`, `lib/ui/import_flow.dart` (import).
 
-- **Export:** reads every table of the current schema (MediaItems, Episodes, WatchLogs, UserLists,
+- **Export:** reads every table (MediaItems with the progress unit, Episodes, WatchLogs, ReadingLogs, UserLists,
   ListEntries) and writes one JSON file named `bookmark-backup-YYYY-MM-DD.json` to the temporary folder,
   then opens the Android share sheet (save to Files or Drive, or send it to yourself).
-  The file has `app: "bookmark"`, `format` (1), `schemaVersion`, `exportedAt` and a `counts` block.
-  Enums are written as names (`movie`, `inProgress`), dates as UTC text, and ids are kept as they are.
+  The file has `app: "bookmark"`, `format` (1), `schemaVersion` (3), `exportedAt` and a `counts` block.
+  Enums are written as names (`movie`, `inProgress`, `pages`), dates as UTC text, and ids are kept as they are.
 - **Import:** pick the file with the system file chooser. The app checks it (a Bookmark backup, a format it
   understands, not from a newer version) and changes nothing if it is not valid. Older backups with a
-  missing table or field still import (missing means empty or default, unknown fields are ignored).
+  missing table or field still import (missing means empty or default, unknown fields are ignored, a backup
+  with no `readingLogs` does not touch the reading history).
   All writes happen in one transaction, so an import either fully succeeds or changes nothing. A report
   is shown at the end ("Import done: 30 added, 12 merged, ...").
   - Ids in the file are never trusted: a map from backup id to the real id on the phone is used for
     episodes, history and list entries.
   - Empty library: everything is imported after one confirmation.
   - Items are matched by type + external id (TMDB id or Open Library key).
-  - Item only in the backup: added with its episodes and history. Item only on the phone: untouched.
-  - Item on both with the same progress (status, stop details, ticked episodes, history): skipped.
+  - Item only in the backup: added with its episodes, history, reading logs, progress unit and position.
+    Item only on the phone: untouched.
+  - Item on both with the same progress (status, stop details, ticked episodes, watch history, reading history):
+    skipped.
   - Item on both with different progress is a **conflict**. One sheet lists the titles with the reason
-    (for example "Phone: Watching, backup: Watched") and the user picks one choice for all of them:
-    - **Merge both (recommended):** ticked episodes are the union, history rows are the union (identical rows
-      skipped), the status and stop reason come from the side with the later activity, missing details are
-      filled from the other side, and a series status is recalculated from the merged episodes.
-    - **Keep my phone's version:** conflicting items stay as they are.
-    - **Use the backup's version:** conflicting items take the backup's status, ticks and history.
+    (for example "Phone: Watching, backup: Watched" or "Reading history differs") and the user picks one choice
+    for all of them:
+    - **Merge both (recommended):** ticked episodes are the union, history and reading log rows are the union
+      (identical rows skipped), the status, stop reason and book position come from the side with the later
+      activity, missing details are filled from the other side, and a series status is recalculated from the
+      merged episodes.
+    - **Keep my phone's version:** conflicting items stay as they are (reading logs too).
+    - **Use the backup's version:** conflicting items take the backup's status, ticks, history, reading logs
+      (the phone's reading logs of that book are replaced) and position.
   - Lists are joined by name (ignoring case) and their entries are combined. They are never a conflict.
   - Importing the same file twice changes nothing the second time.
 
@@ -321,12 +391,14 @@ Code lives in `lib/background/`.
   to text only. Image download failures never block the notification.
 - **Tap:** the payload is the series' database id. Tapping opens `/item/:id` on top of Home,
   both when the app is running (tap handler passed to `initNotifications`) and when the app was
-  closed (launch payload checked after the first frame).
+  closed (launch payload checked after the first frame). The payload `stop` (Stop button of the reading timer)
+  starts the stop flow, and `checkin` just opens the app.
 - **Permission:** the Android 13+ notification permission is requested from the app on launch,
   never from the worker. Each isolate calls `initNotifications()` itself.
 - **Testing:** use the temporary `debugRewindLastCheck()` (sets the last check to 30 days ago) and
   `runEpisodeCheckNow()` (runs the task once), both in `background_worker.dart`, before `runApp`, then
-  remove the calls.
+  remove the calls. To test the reading check-in quickly, set `checkInEvery` and `answerWithin` to 1 minute in
+  `reading_session_provider.dart`, then put them back to 15 and 2.
 
 ## Home screen
 
@@ -339,7 +411,8 @@ Code lives in `lib/background/`.
      that marks it watched now. The next episode is the first aired, unticked episode after the
      furthest one ticked, or the earliest unticked aired one if none follows it. Ticking uses the
      usual "Mark earlier episodes too?" prompt.
-   - **Book being read:** a tick at the end of the title marks it as read now.
+   - **Book being read:** progress bar, "Page X/Y" (or "X%"), an Update progress button and the tick (marks it
+     read now) beside the title, and the Start session button (see Reading session).
    - **Movie in Watching:** only possible with older data (movies no longer have a Watching option).
      A tick at the end of the title marks it as watched.
    - **Movie in Want to watch:** up to 10, newest added first, subtitle "Want to watch", shown after all
@@ -391,21 +464,24 @@ then US, then the general date.
   long press = now or earlier). "Mark season as watched / unwatched" sits above the list (tap = now,
   long press = now or earlier). Works the same for a series that is not in the library yet.
 
-**Book** (top to bottom): title (year) + tick; by Author; rating ring | pages · language ·
-publisher (from the most prominent English edition); categories; "Did not complete" card (reason,
-page stopped at, edit) when it applies; About this book; Similar.
+**Book** (top to bottom): title (year) + session button (only while Reading) + tick; by Author; rating ring |
+pages · language · publisher (from the most prominent English edition); "Did not complete" card (reason,
+page stopped at, edit) when it applies; categories; About this book; Similar.
+There is no Progress card and no session card on the page: the progress is the ring in the session button and the
+"Update progress" option.
 "Did not complete" opens a sheet with reason chips (plus optional "Other" text) and a
 page-stopped-at slider with -10/-1/+1/+10 buttons. Both are optional and can be edited later.
 Recommendations: other books by the same author plus top-rated books in one of the book's subjects.
 
-## Data model (Drift tables, schema version 2)
+## Data model (Drift tables, schema version 3)
 
-- MediaItems: one table for movie, series and book (type, externalId, title, posterUrl, overview, year, genres, status, rating, runtime, ongoing, author, pageCount, currentPage, dropReason, droppedAtPage, addedAt, lastActivityAt). Unique on (type, externalId). `rating` and `currentPage` are unused until Batch 5. `runtime` is minutes (movie length or typical episode length). `ongoing` is null until known. `genres` is a comma separated text.
+- MediaItems: one table for movie, series and book (type, externalId, title, posterUrl, overview, year, genres, status, rating, runtime, ongoing, author, pageCount, currentPage, progressUnit, dropReason, droppedAtPage, addedAt, lastActivityAt). Unique on (type, externalId). `rating` is unused. `runtime` is minutes (movie length or typical episode length). `ongoing` is null until known. `genres` is a comma separated text. `currentPage` is the current progress value of a book (pages or percent, depending on `progressUnit`). `progressUnit` is null until a book is tracked.
 - Episodes: seriesId, seasonNumber, episodeNumber, title, airDate, runtime, watched, watchedAt. Unique on (seriesId, seasonNumber, episodeNumber).
 - WatchLogs: itemId, episodeId (null for movies and books), watchedAt, counted (true = watched now, false = watched earlier), minutes.
+- ReadingLogs: itemId, readAt, fromPage, toPage, pages (null when percent only), minutes (null when not timed), inPercent.
 - UserLists (id, unique name) and ListEntries (listId, itemId, primary key on both, cascade delete): custom lists, many-to-many with items.
 - Draft items and draft episodes (not in the database) use negative ids.
-- Batch 5 adds ReadingLogs and a progress unit column (schema 3).
+- Migration 2 to 3: adds `progressUnit` and creates ReadingLogs, existing data is untouched.
 
 Posters are stored as medium images. Detail pages and the hero swap the URL for a larger version
 at display time (TMDB w780, Open Library -L).
@@ -415,6 +491,7 @@ at display time (TMDB w780, Open Library -L).
 Before version 1 (end of Batch 7): measure the release APK size
 (`flutter build apk --release --split-per-abi`, and `flutter build apk --analyze-size --target-platform android-arm64`),
 check that code and resource shrinking are on in `android/app/build.gradle.kts`, trim anything large,
+upgrade `workmanager` (Kotlin Gradle plugin warning), review the `USE_EXACT_ALARM` note (Android setup),
 then release version 1. (A debug build from `flutter run` is always much bigger than a release build.)
 
 ## Progress
@@ -451,9 +528,17 @@ then release version 1. (A debug build from `flutter run` is always much bigger 
 - [x] Batch 4: JSON export (share sheet)
 - [x] JSON import with conflict handling (merge both, keep phone, use backup)
 - [x] Batch 6: region picker (46 countries, saved, drives Watch now, age rating and release date) and real
-      app version in About (package_info_plus)
-- [ ] Batch 5: reading tracking (schema 3, ReadingLogs, progress unit), book stats, ReadingLogs in export and import
-- [ ] Batch 7: rolling "Window" stats (Last 7 days, Last month, Last 12 months), then app size check, then release version 1
+      semantic app version in About (package_info_plus)
+- [x] Batch 5a: schema 3, pages or percent per book with an editable page count, progress sheet, book life cycle
+      menus, reading rules, ReadingLogs in the export
+- [x] Batch 5b: Home hero progress card, reading session (focus timer) with check-ins, session button on the book
+      page, alarm-style check-in (on time, rings until answered), notification timer with Stop button, mandatory
+      progress update after an automatic stop, old notification channels removed
+- [ ] Batch 5c: reading stats in the Books view (pages, reading days, average, streaks, reading time, pages chart)
+      and ReadingLogs in import (files delivered, waiting for confirmation)
+- [ ] Optional: big Clock-style number in the reading timer notification (needs native Android code)
+- [ ] Batch 7: rolling "Window" stats (Last 7 days, Last month, Last 12 months), then app size check, `workmanager`
+      upgrade, then release version 1
 - [ ] Background check polish (optional, when the library grows): short pause between series for
       TMDB rate limits, skip long-ended shows, show "last checked" time (needs a schema migration)
 - [ ] Later, if wanted: remember the last Contents segment after closing the app, newest-first order in

@@ -8,14 +8,14 @@ export 'tables.dart';
 part 'app_database.g.dart';
 
 @DriftDatabase(
-  tables: [MediaItems, Episodes, UserLists, ListEntries, WatchLogs],
+  tables: [MediaItems, Episodes, UserLists, ListEntries, WatchLogs, ReadingLogs],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: 'bookmark'));
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -26,19 +26,19 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(episodes, episodes.runtime);
         await m.createTable(watchLogs);
       }
+      if (from < 3) {
+        await m.addColumn(mediaItems, mediaItems.progressUnit);
+        await m.createTable(readingLogs);
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
     },
   );
 
-  // ---------- Writes ----------
-
   Future<int> addItem(MediaItemsCompanion item) =>
       into(mediaItems).insert(item, mode: InsertMode.insertOrIgnore);
 
-  /// [touch] false keeps the item where it is in "Recently ..." lists
-  /// (used for "watched earlier").
   Future<void> setStatus(int id, Status status, {bool touch = true}) =>
       (update(mediaItems)..where((t) => t.id.equals(id))).write(
         MediaItemsCompanion(
@@ -54,7 +54,6 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
 
-  /// "Did not complete": both reason and page are optional.
   Future<void> setDropped(int id, String? reason, int? page) =>
       (update(mediaItems)..where((t) => t.id.equals(id))).write(
         MediaItemsCompanion(
@@ -73,7 +72,6 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
 
-  /// Fills in details that older items do not have yet.
   Future<void> saveMeta(int id, {int? runtime, bool? ongoing}) async {
     if (runtime == null && ongoing == null) return;
     await (update(mediaItems)..where((t) => t.id.equals(id))).write(
@@ -83,7 +81,6 @@ class AppDatabase extends _$AppDatabase {
       ),
     );
     if (ongoing != null) {
-      // Whether a show is still running decides if it can be "Watched".
       final ticked = await (select(episodes)
         ..where((e) => e.seriesId.equals(id) & e.watched.equals(true))
         ..limit(1))
@@ -92,12 +89,9 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
-  // ---------- Item detail ----------
-
   Stream<MediaItem?> watchItem(int id) =>
       (select(mediaItems)..where((t) => t.id.equals(id))).watchSingleOrNull();
 
-  /// rating is 1 to 5, or null to clear it. (Unused for now.)
   Future<void> setRating(int id, int? rating) =>
       (update(mediaItems)..where((t) => t.id.equals(id))).write(
         MediaItemsCompanion(
@@ -106,11 +100,8 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
 
-  /// Episodes, history and list entries are removed too (cascade).
   Future<void> deleteItem(int id) =>
       (delete(mediaItems)..where((t) => t.id.equals(id))).go();
-
-  // ---------- Watch history (movies and books) ----------
 
   Future<void> addLog(
       int itemId, {
@@ -126,8 +117,6 @@ class AppDatabase extends _$AppDatabase {
         minutes: Value(minutes),
       ));
 
-  /// Movie watched or book read. [counted] false means "earlier":
-  /// it is saved in the history but left out of the timeline.
   Future<void> markDone(MediaItem item, {required bool counted}) =>
       transaction(() async {
         await setStatus(item.id, Status.done, touch: counted);
@@ -138,8 +127,6 @@ class AppDatabase extends _$AppDatabase {
         );
       });
 
-  /// Removes the latest watch. If no history is left the item goes back
-  /// to the wishlist.
   Future<void> markUnwatched(int itemId) => transaction(() async {
     final rows = await (select(watchLogs)
       ..where((l) => l.itemId.equals(itemId) & l.episodeId.isNull())
@@ -157,8 +144,6 @@ class AppDatabase extends _$AppDatabase {
     }
   });
 
-  // ---------- Series episodes ----------
-
   Stream<List<Episode>> watchEpisodes(int seriesId) => (select(episodes)
     ..where((e) => e.seriesId.equals(seriesId))
     ..orderBy([
@@ -170,8 +155,6 @@ class AppDatabase extends _$AppDatabase {
   Future<List<Episode>> episodesOf(int seriesId) =>
       (select(episodes)..where((e) => e.seriesId.equals(seriesId))).get();
 
-  /// Ticks or unticks episodes, writes or removes their history, then fixes
-  /// the series status. [counted] false = "watched earlier".
   Future<void> setEpisodesWatched(
       int seriesId,
       Iterable<int> ids,
@@ -210,8 +193,6 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
-  /// Unticks every episode, removes their history, and moves the series back
-  /// to "want".
   Future<void> clearSeriesProgress(int seriesId) => transaction(() async {
     await (delete(watchLogs)..where((l) => l.itemId.equals(seriesId))).go();
     await (update(episodes)..where((e) => e.seriesId.equals(seriesId)))
@@ -222,7 +203,6 @@ class AppDatabase extends _$AppDatabase {
     await _refreshSeriesStatus(seriesId, touch: false);
   });
 
-  /// Fills in missing episode runtimes (series added before this was saved).
   Future<void> fillEpisodeRuntimes(
       int seriesId,
       int season,
@@ -242,8 +222,6 @@ class AppDatabase extends _$AppDatabase {
         });
       });
 
-  /// Nothing ticked -> want. Still running (or not known yet) -> inProgress.
-  /// Ended and every aired episode ticked -> done. Otherwise inProgress.
   Future<void> _refreshSeriesStatus(int seriesId, {required bool touch}) async {
     final series = await (select(mediaItems)
       ..where((t) => t.id.equals(seriesId)))
@@ -271,21 +249,10 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  // ---------- Background refresh ----------
-
   Future<List<MediaItem>> allSeries() => (select(mediaItems)
     ..where((t) => t.type.equalsValue(MediaType.series)))
       .get();
 
-  /// Saves fresh TMDB data for one series, in a single transaction:
-  /// - new episodes are inserted
-  /// - existing episodes get a new title, air date or runtime (a missing
-  ///   value from TMDB never erases what is saved)
-  /// - genres, runtime and the ongoing flag are updated
-  /// - the series status is recalculated (a Watched series with new aired
-  ///   episodes goes back to Watching)
-  /// `watched`, `watchedAt` and `lastActivityAt` are never touched.
-  /// Returns how many new episodes were added.
   Future<int> applySeriesRefresh(
       int seriesId, {
         required String genres,
@@ -345,11 +312,6 @@ class AppDatabase extends _$AppDatabase {
         return toAdd.length;
       });
 
-  // ---------- Home screen ----------
-
-  /// Books being read, movies being watched, and series you are watching that
-  /// have an aired episode you have not ticked. A series you are caught up on
-  /// is left out (even if it is still running) until new episodes are saved.
   Stream<List<MediaItem>> hero() {
     final query = customSelect(
       'SELECT * FROM media_items '
@@ -369,7 +331,6 @@ class AppDatabase extends _$AppDatabase {
       readsFrom: {mediaItems, episodes},
     );
 
-    // Series are checked in Dart, with the current time on every refresh.
     return query.watch().asyncMap((rows) async {
       final now = DateTime.now();
       final shown = <MediaItem>[];
@@ -415,16 +376,12 @@ class AppDatabase extends _$AppDatabase {
     ..orderBy([(t) => OrderingTerm.desc(t.lastActivityAt)]))
       .watch();
 
-  // ---------- Genres ----------
-
-  /// "Drama, Crime" -> ['Drama', 'Crime'].
   static List<String> _genresOf(String raw) => raw
       .split(',')
       .map((g) => g.trim())
       .where((g) => g.isNotEmpty)
       .toList();
 
-  /// Every genre in the library with how many items have it, most common first.
   Stream<List<({String name, int count})>> genreCounts() =>
       select(mediaItems).watch().map((all) {
         final counts = <String, int>{};
@@ -442,16 +399,12 @@ class AppDatabase extends _$AppDatabase {
         return list;
       });
 
-  /// Movies, series and books that have this exact genre.
   Stream<List<MediaItem>> byGenre(String genre) => (select(mediaItems)
     ..orderBy([(t) => OrderingTerm.desc(t.lastActivityAt)]))
       .watch()
       .map((all) =>
       all.where((i) => _genresOf(i.genres).contains(genre)).toList());
 
-  // ---------- Custom lists ----------
-
-  /// Every list with its item count, A to Z.
   Stream<List<({UserList list, int count})>> listsWithCounts() {
     final count = listEntries.itemId.count();
     final query = select(userLists).join([
@@ -474,7 +427,6 @@ class AppDatabase extends _$AppDatabase {
   Stream<UserList?> watchList(int id) =>
       (select(userLists)..where((l) => l.id.equals(id))).watchSingleOrNull();
 
-  /// The items in one list, A to Z.
   Stream<List<MediaItem>> itemsInList(int listId) {
     final query = select(mediaItems).join([
       innerJoin(listEntries, listEntries.itemId.equalsExp(mediaItems.id)),
@@ -486,13 +438,11 @@ class AppDatabase extends _$AppDatabase {
         .map((rows) => [for (final r in rows) r.readTable(mediaItems)]);
   }
 
-  /// The ids of the lists this item is in.
   Stream<Set<int>> listIdsOfItem(int itemId) => (select(listEntries)
     ..where((e) => e.itemId.equals(itemId)))
       .watch()
       .map((rows) => {for (final r in rows) r.listId});
 
-  /// Returns the new list's id, or null when the name is empty or already used.
   Future<int?> createList(String name) async {
     final clean = name.trim();
     if (clean.isEmpty) return null;
@@ -501,7 +451,6 @@ class AppDatabase extends _$AppDatabase {
     return into(userLists).insert(UserListsCompanion.insert(name: clean));
   }
 
-  /// Returns false when the name is empty or used by another list.
   Future<bool> renameList(int id, String name) async {
     final clean = name.trim();
     if (clean.isEmpty) return false;
@@ -514,7 +463,6 @@ class AppDatabase extends _$AppDatabase {
     return true;
   }
 
-  /// Deletes the list only. Its entries go with it, the items stay.
   Future<void> deleteList(int id) =>
       (delete(userLists)..where((l) => l.id.equals(id))).go();
 
@@ -529,8 +477,6 @@ class AppDatabase extends _$AppDatabase {
       ..where((e) => e.listId.equals(listId) & e.itemId.equals(itemId)))
         .go();
   }
-
-  // ---------- Search / add helpers ----------
 
   Future<int?> findId(MediaType type, String externalId) async {
     final row = await (select(mediaItems)

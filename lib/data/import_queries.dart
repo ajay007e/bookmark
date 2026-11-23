@@ -6,8 +6,6 @@ import 'app_database.dart';
 import 'export_queries.dart' show backupFormat;
 import 'labels.dart';
 
-// ---------- Reading the backup file ----------
-
 T _req<T>(Map<String, dynamic> j, String k) {
   final v = j[k];
   if (v is T) return v;
@@ -26,6 +24,11 @@ T _enum<T extends Enum>(List<T> values, String name) => values.firstWhere(
   orElse: () => throw FormatException('Unknown value "$name" in the backup.'),
 );
 
+T? _enumOpt<T extends Enum>(List<T> values, Map<String, dynamic> j, String k) {
+  final s = _opt<String>(j, k);
+  return s == null ? null : _enum(values, s);
+}
+
 DateTime? _dateOpt(Map<String, dynamic> j, String k) {
   final s = _opt<String>(j, k);
   return s == null ? null : DateTime.parse(s);
@@ -39,11 +42,12 @@ Map<int, List<T>> _group<T>(List<T> list, int Function(T) by) {
   return m;
 }
 
-// Keys used to recognise "the same thing" on the phone and in the backup.
 String _itemKey(MediaType t, String externalId) => '${t.name}|$externalId';
 String _epKey(int season, int episode) => '$season:$episode';
 String _logKey(String ep, DateTime at, bool counted, int? minutes) =>
     '$ep|${at.toUtc().millisecondsSinceEpoch ~/ 1000}|$counted|${minutes ?? ''}';
+String _readKey(DateTime at, int from, int to, int? minutes) =>
+    '${at.toUtc().millisecondsSinceEpoch ~/ 1000}|$from|$to|${minutes ?? ''}';
 
 class BackupItem {
   BackupItem(Map<String, dynamic> j)
@@ -62,6 +66,7 @@ class BackupItem {
         author = _opt<String>(j, 'author'),
         pageCount = _opt<int>(j, 'pageCount'),
         currentPage = _opt<int>(j, 'currentPage') ?? 0,
+        progressUnit = _enumOpt(ProgressUnit.values, j, 'progressUnit'),
         dropReason = _opt<String>(j, 'dropReason'),
         droppedAtPage = _opt<int>(j, 'droppedAtPage'),
         addedAt = _dateOpt(j, 'addedAt') ?? DateTime.now(),
@@ -82,6 +87,7 @@ class BackupItem {
   final String? author;
   final int? pageCount;
   final int currentPage;
+  final ProgressUnit? progressUnit;
   final String? dropReason;
   final int? droppedAtPage;
   final DateTime addedAt;
@@ -126,6 +132,25 @@ class BackupLog {
   final int? minutes;
 }
 
+class BackupReadLog {
+  BackupReadLog(Map<String, dynamic> j)
+      : itemId = _req<int>(j, 'itemId'),
+        readAt = DateTime.parse(_req<String>(j, 'readAt')),
+        fromPage = _opt<int>(j, 'fromPage') ?? 0,
+        toPage = _opt<int>(j, 'toPage') ?? 0,
+        pages = _opt<int>(j, 'pages'),
+        minutes = _opt<int>(j, 'minutes'),
+        inPercent = _opt<bool>(j, 'inPercent') ?? false;
+
+  final int itemId;
+  final DateTime readAt;
+  final int fromPage;
+  final int toPage;
+  final int? pages;
+  final int? minutes;
+  final bool inPercent;
+}
+
 class BackupList {
   BackupList(Map<String, dynamic> j)
       : id = _req<int>(j, 'id'),
@@ -135,13 +160,13 @@ class BackupList {
   final String name;
 }
 
-/// A backup file, read and checked. Throws FormatException with a message
-/// for the user when the file is not a usable Bookmark backup.
 class BackupFile {
   BackupFile._({
     required this.items,
     required this.episodes,
     required this.logs,
+    required this.readLogs,
+    required this.hasReadingLogs,
     required this.lists,
     required this.entries,
   });
@@ -149,6 +174,8 @@ class BackupFile {
   final List<BackupItem> items;
   final List<BackupEpisode> episodes;
   final List<BackupLog> logs;
+  final List<BackupReadLog> readLogs;
+  final bool hasReadingLogs;
   final List<BackupList> lists;
   final List<({int listId, int itemId})> entries;
 
@@ -156,12 +183,12 @@ class BackupFile {
   _group(episodes, (e) => e.seriesId);
   late final Map<int, List<BackupLog>> logsByItem =
   _group(logs, (l) => l.itemId);
+  late final Map<int, List<BackupReadLog>> readLogsByItem =
+  _group(readLogs, (l) => l.itemId);
   late final Map<int, String> epKeyById = {
     for (final e in episodes) e.id: _epKey(e.seasonNumber, e.episodeNumber),
   };
 
-  /// "S:E" of the episode a log row belongs to, "-" for movies and books,
-  /// null when the log points to an episode that is not in the file.
   String? logEpKey(BackupLog l) {
     final id = l.episodeId;
     if (id == null) return '-';
@@ -174,6 +201,11 @@ class BackupFile {
         _logKey(logEpKey(l)!, l.watchedAt, l.counted, l.minutes),
   };
 
+  Set<String> readKeys(int itemId) => {
+    for (final l in readLogsByItem[itemId] ?? const <BackupReadLog>[])
+      _readKey(l.readAt, l.fromPage, l.toPage, l.minutes),
+  };
+
   static BackupFile parse(String text) {
     final Object? decoded;
     try {
@@ -184,8 +216,6 @@ class BackupFile {
     if (decoded is! Map<String, dynamic> || decoded['app'] != 'bookmark') {
       throw const FormatException('This is not a Bookmark backup file.');
     }
-    // A variable that is already typed as a Map, so it also works
-    // inside the helper function below.
     final Map<String, dynamic> root = decoded;
 
     final format = root['format'];
@@ -200,7 +230,7 @@ class BackupFile {
 
     List<T> read<T>(String key, T Function(Map<String, dynamic>) make) {
       final v = root[key];
-      if (v == null) return <T>[]; // older backups may lack a table
+      if (v == null) return <T>[];
       if (v is! List) throw FormatException('"$key" is not a list.');
       return [for (final e in v) make(e as Map<String, dynamic>)];
     }
@@ -210,6 +240,8 @@ class BackupFile {
         items: read('mediaItems', BackupItem.new),
         episodes: read('episodes', BackupEpisode.new),
         logs: read('watchLogs', BackupLog.new),
+        readLogs: read('readingLogs', BackupReadLog.new),
+        hasReadingLogs: root['readingLogs'] is List,
         lists: read('userLists', BackupList.new),
         entries: read(
           'listEntries',
@@ -221,8 +253,6 @@ class BackupFile {
     }
   }
 }
-
-// ---------- Plan and report ----------
 
 enum ImportChoice { keepPhone, useBackup, merge }
 
@@ -279,7 +309,7 @@ Status _seriesStatus(bool? ongoing, List<Episode> eps) {
       .where((e) => !e.watched && e.airDate != null && !e.airDate!.isAfter(now))
       .length;
   if (watched == 0) return Status.want;
-  final running = ongoing ?? true; // not known yet = treated as running
+  final running = ongoing ?? true;
   return (!running && unwatchedAired == 0) ? Status.done : Status.inProgress;
 }
 
@@ -287,8 +317,6 @@ String? _fill(String? keep, String? other) =>
     (keep == null || keep.isEmpty) ? other : keep;
 
 extension ImportQueries on AppDatabase {
-  // ---------- Step 1: compare (changes nothing) ----------
-
   Future<ImportPreview> analyzeBackup(BackupFile f) async {
     final items = await select(mediaItems).get();
     final phoneByKey = {for (final i in items) _itemKey(i.type, i.externalId): i};
@@ -303,6 +331,11 @@ extension ImportQueries on AppDatabase {
       final ep = l.episodeId == null ? '-' : (epKeyById[l.episodeId] ?? '?');
       (logKeysByItem[l.itemId] ??= {})
           .add(_logKey(ep, l.watchedAt, l.counted, l.minutes));
+    }
+    final readKeysByItem = <int, Set<String>>{};
+    for (final l in await select(readingLogs).get()) {
+      (readKeysByItem[l.itemId] ??= {})
+          .add(_readKey(l.readAt, l.fromPage, l.toPage, l.minutes));
     }
 
     final newItems = <BackupItem>[];
@@ -321,6 +354,7 @@ extension ImportQueries on AppDatabase {
         p,
         epsByItem[p.id] ?? const <Episode>[],
         logKeysByItem[p.id] ?? const <String>{},
+        readKeysByItem[p.id] ?? const <String>{},
       );
       if (why == null) {
         identical++;
@@ -338,13 +372,13 @@ extension ImportQueries on AppDatabase {
     );
   }
 
-  /// null = the progress is the same on both sides. Otherwise the reason.
   String? _difference(
       BackupFile f,
       BackupItem b,
       MediaItem p,
       List<Episode> pEps,
       Set<String> pLogs,
+      Set<String> pReads,
       ) {
     if (b.status != p.status) {
       return 'Phone: ${statusLabel(p.type, p.status)}, '
@@ -368,10 +402,14 @@ extension ImportQueries on AppDatabase {
     if (bl.length != pLogs.length || !bl.containsAll(pLogs)) {
       return 'Watch history differs';
     }
+    if (f.hasReadingLogs && b.type == MediaType.book) {
+      final br = f.readKeys(b.id);
+      if (br.length != pReads.length || !br.containsAll(pReads)) {
+        return 'Reading history differs';
+      }
+    }
     return null;
   }
-
-  // ---------- Step 2: apply (one transaction, all or nothing) ----------
 
   Future<ImportReport> applyBackup(ImportPreview pv, ImportChoice choice) =>
       transaction(() async {
@@ -387,7 +425,6 @@ extension ImportQueries on AppDatabase {
             _itemKey(i.type, i.externalId): i,
         };
 
-        // Backup item id -> id of the same item on this phone.
         final idMap = <int, int>{};
 
         for (final b in f.items) {
@@ -415,7 +452,6 @@ extension ImportQueries on AppDatabase {
           }
         }
 
-        // Lists: joined by name, entries combined.
         final byName = {
           for (final l in await select(userLists).get())
             l.name.toLowerCase(): l.id,
@@ -461,6 +497,7 @@ extension ImportQueries on AppDatabase {
       author: Value(b.author),
       pageCount: Value(b.pageCount),
       currentPage: Value(b.currentPage),
+      progressUnit: Value(b.progressUnit),
       dropReason: Value(b.dropReason),
       droppedAtPage: Value(b.droppedAtPage),
       addedAt: Value(b.addedAt),
@@ -468,10 +505,10 @@ extension ImportQueries on AppDatabase {
     ));
     await _addMissingEpisodes(f.episodesBySeries[b.id] ?? const [], id, const {});
     await _importLogs(f, b.id, id);
+    await _importReadLogs(f, b.id, id);
     return id;
   }
 
-  /// Inserts backup episodes whose season and number are not in [have].
   Future<void> _addMissingEpisodes(
       List<BackupEpisode> list,
       int seriesId,
@@ -513,8 +550,14 @@ extension ImportQueries on AppDatabase {
     };
   }
 
-  /// Copies the backup's history rows of one item. Rows already in [existing]
-  /// are skipped. [allow] can leave out rows (by episode key, "-" = item level).
+  Future<Set<String>> _phoneReadKeys(int itemId) async {
+    final rows =
+    await (select(readingLogs)..where((l) => l.itemId.equals(itemId))).get();
+    return {
+      for (final l in rows) _readKey(l.readAt, l.fromPage, l.toPage, l.minutes),
+    };
+  }
+
   Future<void> _importLogs(
       BackupFile f,
       int backupItemId,
@@ -550,17 +593,38 @@ extension ImportQueries on AppDatabase {
     if (toAdd.isNotEmpty) await batch((x) => x.insertAll(watchLogs, toAdd));
   }
 
-  // ---------- Merge both ----------
+  Future<void> _importReadLogs(
+      BackupFile f,
+      int backupItemId,
+      int phoneItemId, {
+        Set<String> existing = const {},
+      }) async {
+    final seen = {...existing};
+    final toAdd = <ReadingLogsCompanion>[];
+    for (final l in f.readLogsByItem[backupItemId] ?? const <BackupReadLog>[]) {
+      if (!seen.add(_readKey(l.readAt, l.fromPage, l.toPage, l.minutes))) continue;
+      toAdd.add(ReadingLogsCompanion.insert(
+        itemId: phoneItemId,
+        readAt: l.readAt,
+        fromPage: l.fromPage,
+        toPage: l.toPage,
+        pages: Value(l.pages),
+        minutes: Value(l.minutes),
+        inPercent: Value(l.inPercent),
+      ));
+    }
+    if (toAdd.isNotEmpty) await batch((x) => x.insertAll(readingLogs, toAdd));
+  }
 
   Future<void> _merge(BackupFile f, BackupItem b, MediaItem p) async {
     final series = p.type == MediaType.series;
+    final isBook = p.type == MediaType.book;
     final bEps = f.episodesBySeries[b.id] ?? const <BackupEpisode>[];
     final pEps = await episodesOf(p.id);
     final pByKey = {
       for (final e in pEps) _epKey(e.seasonNumber, e.episodeNumber): e,
     };
 
-    // Episodes: a tick on either side stays. Missing episodes are added.
     for (final e in bEps) {
       final old = pByKey[_epKey(e.seasonNumber, e.episodeNumber)];
       if (old != null && e.watched && !old.watched) {
@@ -574,7 +638,6 @@ extension ImportQueries on AppDatabase {
     }
     await _addMissingEpisodes(bEps, p.id, pByKey.keys.toSet());
 
-    // Item: the side with the later activity decides the status.
     final backupNewer = b.lastActivityAt.isAfter(p.lastActivityAt);
     var status = backupNewer ? b.status : p.status;
     final ongoing = p.ongoing ?? b.ongoing;
@@ -594,7 +657,19 @@ extension ImportQueries on AppDatabase {
         runtime: Value(p.runtime ?? b.runtime),
         ongoing: Value(ongoing),
         author: Value(_fill(p.author, b.author)),
-        pageCount: Value(p.pageCount ?? b.pageCount),
+        pageCount: Value(
+          backupNewer ? (b.pageCount ?? p.pageCount) : (p.pageCount ?? b.pageCount),
+        ),
+        currentPage: isBook
+            ? Value(backupNewer ? b.currentPage : p.currentPage)
+            : const Value.absent(),
+        progressUnit: isBook
+            ? Value(
+          backupNewer
+              ? (b.progressUnit ?? p.progressUnit)
+              : (p.progressUnit ?? b.progressUnit),
+        )
+            : const Value.absent(),
         addedAt: Value(b.addedAt.isBefore(p.addedAt) ? b.addedAt : p.addedAt),
         lastActivityAt: Value(
           b.lastActivityAt.isAfter(p.lastActivityAt) ? b.lastActivityAt : p.lastActivityAt,
@@ -602,7 +677,6 @@ extension ImportQueries on AppDatabase {
       ),
     );
 
-    // History: union. Only rows that match the merged state are added.
     final existing = await _phoneLogKeys(p.id);
     if (series) {
       final watchedKeys = {
@@ -615,19 +689,21 @@ extension ImportQueries on AppDatabase {
       await _importLogs(f, b.id, p.id,
           existing: existing, allow: (_) => status == Status.done);
     }
-  }
 
-  // ---------- Use the backup's version ----------
+    if (isBook && f.hasReadingLogs && status != Status.want) {
+      await _importReadLogs(f, b.id, p.id, existing: await _phoneReadKeys(p.id));
+    }
+  }
 
   Future<void> _overwrite(BackupFile f, BackupItem b, MediaItem p) async {
     final series = p.type == MediaType.series;
+    final isBook = p.type == MediaType.book;
     final bEps = f.episodesBySeries[b.id] ?? const <BackupEpisode>[];
     final bByKey = {
       for (final e in bEps) _epKey(e.seasonNumber, e.episodeNumber): e,
     };
     final pEps = await episodesOf(p.id);
 
-    // Every episode on the phone takes the backup's tick state.
     for (final e in pEps) {
       final be = bByKey[_epKey(e.seasonNumber, e.episodeNumber)];
       final watched = be?.watched ?? false;
@@ -644,9 +720,13 @@ extension ImportQueries on AppDatabase {
       {for (final e in pEps) _epKey(e.seasonNumber, e.episodeNumber)},
     );
 
-    // History: the backup's rows replace the phone's.
     await (delete(watchLogs)..where((l) => l.itemId.equals(p.id))).go();
     await _importLogs(f, b.id, p.id);
+
+    if (isBook && f.hasReadingLogs) {
+      await (delete(readingLogs)..where((l) => l.itemId.equals(p.id))).go();
+      await _importReadLogs(f, b.id, p.id);
+    }
 
     final status = series
         ? _seriesStatus(p.ongoing ?? b.ongoing, await episodesOf(p.id))
@@ -666,6 +746,10 @@ extension ImportQueries on AppDatabase {
         ongoing: Value(p.ongoing ?? b.ongoing),
         author: Value(_fill(b.author, p.author)),
         pageCount: Value(b.pageCount ?? p.pageCount),
+        currentPage: isBook ? Value(b.currentPage) : const Value.absent(),
+        progressUnit: isBook
+            ? Value(b.progressUnit ?? p.progressUnit)
+            : const Value.absent(),
         addedAt: Value(b.addedAt),
         lastActivityAt: Value(b.lastActivityAt),
       ),

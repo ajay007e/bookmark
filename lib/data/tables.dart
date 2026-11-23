@@ -2,36 +2,30 @@ import 'package:drift/drift.dart';
 
 enum MediaType { movie, series, book }
 
-/// One status enum for everything. Labels differ per type, see labels.dart.
 enum Status { want, inProgress, done, dropped }
 
-/// Movies, series and books share one table. Book-only fields are nullable.
+enum ProgressUnit { pages, percent }
+
 class MediaItems extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get type => intEnum<MediaType>()();
-  TextColumn get externalId => text()(); // TMDB id or Open Library work key
+  TextColumn get externalId => text()();
   TextColumn get title => text()();
   TextColumn get posterUrl => text().nullable()();
   TextColumn get overview => text().nullable()();
   IntColumn get year => integer().nullable()();
   TextColumn get genres => text().withDefault(const Constant(''))();
   IntColumn get status =>
-      intEnum<Status>().withDefault(const Constant(0))(); // 0 = want
-  IntColumn get rating => integer().nullable()(); // unused
-
-  // Movie: runtime in minutes. Series: typical episode length in minutes.
+      intEnum<Status>().withDefault(const Constant(0))();
+  IntColumn get rating => integer().nullable()();
   IntColumn get runtime => integer().nullable()();
-
-  // Series only: is the show still running? null = not known yet.
   BoolColumn get ongoing => boolean().nullable()();
-
-  // Book only
   TextColumn get author => text().nullable()();
   IntColumn get pageCount => integer().nullable()();
-  IntColumn get currentPage => integer().withDefault(const Constant(0))(); // unused
+  IntColumn get currentPage => integer().withDefault(const Constant(0))();
+  IntColumn get progressUnit => intEnum<ProgressUnit>().nullable()();
   TextColumn get dropReason => text().nullable()();
   IntColumn get droppedAtPage => integer().nullable()();
-
   DateTimeColumn get addedAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get lastActivityAt =>
       dateTime().withDefault(currentDateAndTime)();
@@ -42,7 +36,6 @@ class MediaItems extends Table {
   ];
 }
 
-/// Episode-level tracking for series.
 class Episodes extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get seriesId =>
@@ -51,7 +44,7 @@ class Episodes extends Table {
   IntColumn get episodeNumber => integer()();
   TextColumn get title => text().nullable()();
   DateTimeColumn get airDate => dateTime().nullable()();
-  IntColumn get runtime => integer().nullable()(); // minutes
+  IntColumn get runtime => integer().nullable()();
   BoolColumn get watched => boolean().withDefault(const Constant(false))();
   DateTimeColumn get watchedAt => dateTime().nullable()();
 
@@ -61,8 +54,6 @@ class Episodes extends Table {
   ];
 }
 
-/// One row each time something was watched or read. Used for watch-time stats.
-/// Movies and books: episodeId is null. Series: one row per episode.
 class WatchLogs extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get itemId =>
@@ -71,15 +62,24 @@ class WatchLogs extends Table {
       .nullable()
       .references(Episodes, #id, onDelete: KeyAction.cascade)();
   DateTimeColumn get watchedAt => dateTime()();
-
-  /// true = "watched now" (counts in the timeline), false = "watched earlier".
   BoolColumn get counted => boolean().withDefault(const Constant(true))();
-
-  /// Runtime in minutes at the time it was logged (null for books).
   IntColumn get minutes => integer().nullable()();
 }
 
-/// Custom lists and tags (Favorites, Weekend watch, ...).
+class ReadingLogs extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get itemId =>
+      integer().references(MediaItems, #id, onDelete: KeyAction.cascade)();
+  DateTimeColumn get readAt => dateTime()();
+  IntColumn get fromPage => integer()();
+  IntColumn get toPage => integer()();
+  IntColumn get pages => integer().nullable()();
+  IntColumn get minutes => integer().nullable()();
+
+  // true while the book has no page count: fromPage and toPage are percent
+  BoolColumn get inPercent => boolean().withDefault(const Constant(false))();
+}
+
 class UserLists extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text().unique()();

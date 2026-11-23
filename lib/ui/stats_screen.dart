@@ -15,10 +15,8 @@ const _months = [
 String _day(DateTime d) =>
     '${_weekdays[d.weekday - 1]} ${d.day} ${_months[d.month - 1]}';
 
-/// "-" when there is no value, otherwise 1h 35m.
 String _time(int minutes) => minutes == 0 ? '-' : formatDuration(minutes);
 
-/// Detailed stats: one combined view and one for each of movies, series and books.
 class StatsScreen extends ConsumerStatefulWidget {
   const StatsScreen({super.key, this.initialPeriod = StatsPeriod.month});
 
@@ -36,7 +34,6 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
   Widget build(BuildContext context) {
     final summary = ref.watch(detailStatsProvider((period: _period, filter: _filter)));
 
-    // Books you gave up on. Not tied to a date, so it is always "all time".
     final dropped = ref.watch(itemsByTypeProvider(MediaType.book)).maybeWhen<int>(
       data: (l) => l.where((i) => i.status == Status.dropped).length,
       orElse: () => 0,
@@ -53,7 +50,6 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             onChanged: (i) => setState(() => _filter = StatsFilter.values[i]),
           ),
           const SizedBox(height: 12),
-          // The four periods share the full width equally.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
@@ -154,7 +150,12 @@ class _Body extends StatelessWidget {
           _Tile('Books read', '${s.books}'),
           _Tile('Different books', '${s.titles}'),
           _Tile('Pages read', s.pages == 0 ? '-' : '${s.pages}'),
-          _Tile('Average pages', s.avgPages == 0 ? '-' : '${s.avgPages}'),
+          _Tile('Reading days', '${s.activeDays}'),
+          _Tile('Avg pages per day', s.avgPerDay == 0 ? '-' : '${s.avgPerDay}'),
+          if (s.readingMinutes > 0)
+            _Tile('Reading time', formatDuration(s.readingMinutes)),
+          _Tile('Current streak', '${s.currentStreak}', note: 'days'),
+          _Tile('Longest streak', '${s.longestStreak}', note: 'days'),
           _Tile(
             'Most read author',
             s.topAuthor ?? '-',
@@ -191,7 +192,6 @@ class _Body extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Big number
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -203,7 +203,7 @@ class _Body extends StatelessWidget {
                 colors: [scheme.primaryContainer, scheme.tertiaryContainer],
               ),
             ),
-            child: s.entries == 0
+            child: !s.hasActivity
                 ? Text(
               'Nothing counted for ${period.heading.toLowerCase()} yet. '
                   'Mark something as watched or read now and it shows up here.',
@@ -234,11 +234,11 @@ class _Body extends StatelessWidget {
             ),
           ),
 
-          if (s.entries > 0) ...[
+          if (s.hasActivity) ...[
             const SizedBox(height: 12),
             GridView.count(
               shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(), // the page scrolls
+              physics: const NeverScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
               crossAxisCount: 2,
               mainAxisSpacing: 12,
@@ -250,11 +250,10 @@ class _Body extends StatelessWidget {
               ],
             ),
 
-            // Activity chart
             const SizedBox(height: 12),
             _SectionCard(
               title: 'Activity',
-              subtitle: '${isBooks ? 'Books read' : 'Watch time'} $unit',
+              subtitle: '${isBooks ? 'Pages read' : 'Watch time'} $unit',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -263,7 +262,7 @@ class _Body extends StatelessWidget {
                     const SizedBox(height: 12),
                     Text(
                       'Busiest day: ${_day(s.busiestDay!)} · '
-                          '${isBooks ? '${s.busiestValue} read' : formatDuration(s.busiestValue)}',
+                          '${isBooks ? '${s.busiestValue} pages' : formatDuration(s.busiestValue)}',
                       style: text.bodySmall,
                     ),
                   ],
@@ -271,7 +270,6 @@ class _Body extends StatelessWidget {
               ),
             ),
 
-            // Movies vs series (combined view only)
             if (filter == StatsFilter.all && splitTotal > 0) ...[
               const SizedBox(height: 12),
               _SectionCard(
@@ -284,7 +282,6 @@ class _Body extends StatelessWidget {
               ),
             ],
 
-            // Top genres
             if (s.genres.isNotEmpty) ...[
               const SizedBox(height: 12),
               _SectionCard(
@@ -334,6 +331,14 @@ class _Body extends StatelessWidget {
                 'and anything marked before the history feature existed, are not included.',
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
+          if (isBooks) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Books with no page count count for reading days, streaks and time, '
+                  'but not for pages. Streaks use your whole reading history.',
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
         ],
       ),
     );
@@ -423,7 +428,6 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
-/// Simple bars. The tallest bar is highlighted.
 class _BarChart extends StatelessWidget {
   const _BarChart({required this.bars});
 
@@ -436,7 +440,7 @@ class _BarChart extends StatelessWidget {
     final gap = bars.length > 20 ? 1.0 : 3.0;
 
     double factor(int v) {
-      if (maxValue == 0 || v == 0) return 0.02; // a thin stub for empty bars
+      if (maxValue == 0 || v == 0) return 0.02;
       return (v / maxValue).clamp(0.05, 1.0).toDouble();
     }
 
@@ -496,7 +500,6 @@ class _BarChart extends StatelessWidget {
   }
 }
 
-/// One bar split into movies and series, with the share under it.
 class _SplitBar extends StatelessWidget {
   const _SplitBar({required this.movieMinutes, required this.seriesMinutes});
 

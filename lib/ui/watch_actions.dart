@@ -5,35 +5,37 @@ import 'package:go_router/go_router.dart';
 import '../data/app_database.dart';
 import '../data/labels.dart';
 import '../data/mark_queries.dart';
+import '../data/reading_queries.dart';
 import '../providers.dart';
 import 'draft_item.dart';
 import 'draft_saving.dart';
+import 'reading_actions.dart';
 import 'series_actions.dart';
 import 'widgets/add_to_list_sheet.dart';
 import 'widgets/drop_sheet.dart';
+import 'widgets/progress_sheet.dart';
 
 enum WatchAction {
-  addToWant, // unsaved movie only: save it as Want to watch
-  watching, // Watching (movies: disabled) or Reading (books)
+  addToWant,
+  watching,
   watchedNow,
   watchedEarlier,
-  backToWant, // movies and books: confirmation, deletes the history
-  unwatched, // series only: untick every episode
+  backToWant,
+  unwatched,
+  updateProgress,
   didNotComplete,
   addToList,
   remove,
 }
 
-/// One row in the long-press / "more" sheet. Unsupported rows are disabled.
 class MenuEntry {
   const MenuEntry(this.action, {this.enabled = true, this.note});
 
   final WatchAction action;
   final bool enabled;
-  final String? note; // small grey line under the title
+  final String? note;
 }
 
-/// The long-press / "more" menu for this item.
 List<MenuEntry> menuFor(MediaItem item, List<Episode> episodes) {
   switch (item.type) {
     case MediaType.movie:
@@ -46,7 +48,7 @@ List<MenuEntry> menuFor(MediaItem item, List<Episode> episodes) {
       }
       if (item.status == Status.done) {
         return const [
-          MenuEntry(WatchAction.watchedNow), // "Watched again now"
+          MenuEntry(WatchAction.watchedNow),
           MenuEntry(WatchAction.addToList),
           MenuEntry(WatchAction.remove),
         ];
@@ -72,7 +74,6 @@ List<MenuEntry> menuFor(MediaItem item, List<Episode> episodes) {
       }
       switch (item.status) {
         case Status.want:
-        case Status.dropped:
           return const [
             MenuEntry(WatchAction.watching),
             MenuEntry(WatchAction.watchedNow),
@@ -83,14 +84,16 @@ List<MenuEntry> menuFor(MediaItem item, List<Episode> episodes) {
         case Status.inProgress:
           return const [
             MenuEntry(WatchAction.watchedNow),
-            MenuEntry(WatchAction.watchedEarlier),
+            MenuEntry(WatchAction.updateProgress),
             MenuEntry(WatchAction.didNotComplete),
             MenuEntry(WatchAction.addToList),
             MenuEntry(WatchAction.remove),
           ];
+        case Status.dropped:
         case Status.done:
           return const [
-            MenuEntry(WatchAction.watchedNow), // "Read again now"
+            MenuEntry(WatchAction.watching),
+            MenuEntry(WatchAction.watchedNow),
             MenuEntry(WatchAction.addToList),
             MenuEntry(WatchAction.remove),
           ];
@@ -104,7 +107,8 @@ List<MenuEntry> menuFor(MediaItem item, List<Episode> episodes) {
           ? null
           : (started ? "You're up to date" : 'Nothing has aired yet');
       return [
-        const MenuEntry(WatchAction.addToList),
+        MenuEntry(WatchAction.addToWant, enabled: item.isDraft),
+        MenuEntry(WatchAction.addToList),
         MenuEntry(WatchAction.watchedNow, enabled: canMark, note: markNote),
         MenuEntry(WatchAction.watchedEarlier, enabled: canMark, note: markNote),
         MenuEntry(
@@ -123,9 +127,10 @@ String actionLabel(MediaItem item, WatchAction a) {
   final done = item.status == Status.done && !item.isDraft;
   switch (a) {
     case WatchAction.addToWant:
-      return book ? 'Want to read' : 'Want to watch';
+      return statusLabel(item.type, Status.want);
     case WatchAction.watching:
-      return book ? 'Reading' : 'Watching';
+      if (!book) return 'Watching';
+      return done ? 'Reading again' : 'Reading';
     case WatchAction.watchedNow:
       if (series) return 'Mark aired episodes watched now';
       if (book) return done ? 'Read again now' : 'Read now';
@@ -137,6 +142,8 @@ String actionLabel(MediaItem item, WatchAction a) {
       return book ? 'Back to Want to read' : 'Back to Want to watch';
     case WatchAction.unwatched:
       return 'Mark all episodes unwatched';
+    case WatchAction.updateProgress:
+      return 'Update progress';
     case WatchAction.didNotComplete:
       return 'Did not complete';
     case WatchAction.addToList:
@@ -146,8 +153,6 @@ String actionLabel(MediaItem item, WatchAction a) {
   }
 }
 
-/// The small grey line under an option. Books use reading wording,
-/// movies and series use watch-time wording.
 String? actionHint(MediaItem item, WatchAction a) {
   final book = item.type == MediaType.book;
   switch (a) {
@@ -171,12 +176,12 @@ IconData actionIcon(WatchAction a) => switch (a) {
   WatchAction.watchedEarlier => Icons.history,
   WatchAction.backToWant => Icons.bookmark_add_outlined,
   WatchAction.unwatched => Icons.undo,
+  WatchAction.updateProgress => Icons.trending_up,
   WatchAction.didNotComplete => Icons.block,
   WatchAction.addToList => Icons.playlist_add,
   WatchAction.remove => Icons.delete_outline,
 };
 
-/// Opens the long-press / "more" sheet and runs the chosen option.
 Future<void> showWatchMenu(
     BuildContext context,
     WidgetRef ref,
@@ -250,7 +255,6 @@ Future<void> showWatchMenu(
   }
 }
 
-/// Saves an item that is not in the library yet (as Want) and returns it.
 Future<MediaItem?> _saveDraft(WidgetRef ref, MediaItem draft) async {
   final db = ref.read(databaseProvider);
   await ref.read(repositoryProvider).add(resultFromDraft(draft), Status.want);
@@ -259,8 +263,6 @@ Future<MediaItem?> _saveDraft(WidgetRef ref, MediaItem draft) async {
   return db.watchItem(id).first;
 }
 
-/// Runs one option from the menu. An item that is not saved yet is saved first.
-/// For an unsaved series the page shows a full-page spinner meanwhile.
 Future<void> runWatchAction(
     BuildContext context,
     WidgetRef ref,
@@ -289,6 +291,12 @@ Future<void> _runWatchAction(
   final router = GoRouter.of(context);
   final messenger = ScaffoldMessenger.of(context);
 
+  ProgressResult? progress;
+  if (action == WatchAction.watching && original.type == MediaType.book) {
+    progress = await askProgress(context, ref, original, starting: true);
+    if (progress == null || !context.mounted) return;
+  }
+
   var item = original;
   var eps = episodes;
   if (original.isDraft) {
@@ -307,18 +315,30 @@ Future<void> _runWatchAction(
   }
 
   final series = item.type == MediaType.series;
+  final book = item.type == MediaType.book;
   final now = DateTime.now();
   final todo = eps.where((e) => !e.watched && isAired(e, now)).toList();
 
   switch (action) {
     case WatchAction.addToWant:
-    // The item was already saved as Want above. Nothing more to do.
       messenger.showSnackBar(SnackBar(
-        content: Text('Added "${item.title}" to Want to watch'),
+        content: Text(
+          'Added "${item.title}" to ${statusLabel(item.type, Status.want)}',
+        ),
       ));
 
     case WatchAction.watching:
-      await db.setStatus(item.id, Status.inProgress);
+      final p = progress;
+      if (p != null) {
+        await db.saveProgress(
+          item.id,
+          unit: p.unit,
+          pageCount: p.pageCount,
+          value: p.value,
+        );
+      } else {
+        await db.setStatus(item.id, Status.inProgress);
+      }
 
     case WatchAction.watchedNow:
     case WatchAction.watchedEarlier:
@@ -338,6 +358,8 @@ Future<void> _runWatchAction(
           true,
           counted: counted,
         );
+      } else if (book) {
+        await db.markBookRead(item.id, counted: counted);
       } else {
         await db.markDone(item, counted: counted);
       }
@@ -345,9 +367,7 @@ Future<void> _runWatchAction(
     case WatchAction.backToWant:
       final okWant = await confirmDialog(
         context,
-        title: item.type == MediaType.book
-            ? 'Back to Want to read?'
-            : 'Back to Want to watch?',
+        title: book ? 'Back to Want to read?' : 'Back to Want to watch?',
         message:
         'All history for "${item.title}" will be deleted, and it will no longer count in your stats.',
         yes: 'Delete history',
@@ -365,17 +385,19 @@ Future<void> _runWatchAction(
       if (!okUnmark) return;
       await db.clearSeriesProgress(item.id);
 
+    case WatchAction.updateProgress:
+      await updateProgressFlow(context, ref, item);
+
     case WatchAction.didNotComplete:
       final result = await showDropSheet(
         context,
         reason: item.dropReason,
-        page: item.droppedAtPage,
+        page: item.droppedAtPage ?? item.pagesNow,
         pageCount: item.pageCount,
       );
       if (result != null) await db.setDropped(item.id, result.reason, result.page);
 
     case WatchAction.addToList:
-    // The item is saved. Let the page's spinner go before the sheet opens.
       ref.read(draftSavingProvider.notifier).set(false);
       await showAddToListSheet(context, item);
 
@@ -392,10 +414,6 @@ Future<void> _runWatchAction(
   }
 }
 
-/// A single tap on the round tick (movies and books).
-/// Movie: Want -> Watched. Book: Want -> Reading -> Read.
-/// Done -> back to Want (asks first, deletes the history).
-/// Series are never ticked directly: their status follows the episodes.
 Future<void> tapTick(
     BuildContext context,
     WidgetRef ref,
@@ -409,14 +427,14 @@ Future<void> tapTick(
   switch (item.status) {
     case Status.want:
       if (book) {
-        await db.setStatus(item.id, Status.inProgress); // Reading
+        await startReading(context, ref, item);
       } else {
-        await db.markDone(item, counted: true); // Watched
+        await db.markDone(item, counted: true);
       }
     case Status.inProgress:
-      await db.markDone(item, counted: true); // Read now
+      await db.markBookRead(item.id, counted: true);
     case Status.dropped:
-      await db.setStatus(item.id, Status.inProgress); // Reading again
+      await startReading(context, ref, item);
     case Status.done:
       await runWatchAction(context, ref, item, WatchAction.backToWant);
   }

@@ -5,11 +5,13 @@ import '../api/detail_info.dart';
 import '../api/search_result.dart';
 import '../data/app_database.dart';
 import '../providers.dart';
+import 'draft_item.dart';
 import 'widgets/detail_header.dart';
 import 'widgets/drop_sheet.dart';
 import 'widgets/load_note.dart';
 import 'widgets/meta_block.dart';
 import 'widgets/section_divider.dart';
+import 'widgets/session_button.dart';
 import 'widgets/similar_row.dart';
 import 'widgets/title_row.dart';
 import 'widgets/watch_tick.dart';
@@ -19,7 +21,6 @@ class BookDetailView extends ConsumerWidget {
 
   final MediaItem item;
 
-  /// Opens the reason and page sheet. Cancelling changes nothing.
   Future<void> _editDrop(BuildContext context, WidgetRef ref) async {
     final db = ref.read(databaseProvider);
     final result = await showDropSheet(
@@ -59,6 +60,7 @@ class BookDetailView extends ConsumerWidget {
         : (item.genres.isEmpty ? <String>[] : item.genres.split(','));
     final description = loaded?.description ?? item.overview;
     final author = item.author;
+    final reading = !item.isDraft && item.status == Status.inProgress;
 
     return Scaffold(
       body: CustomScrollView(
@@ -73,7 +75,17 @@ class BookDetailView extends ConsumerWidget {
                   TitleRow(
                     title: item.title,
                     year: item.year,
-                    trailing: WatchTick(item: item),
+                    trailingWidth: reading ? 88 : 40,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (reading) ...[
+                          SessionButton(item: item),
+                          const SizedBox(width: 8),
+                        ],
+                        WatchTick(item: item),
+                      ],
+                    ),
                   ),
                   if (author != null && author.isNotEmpty)
                     Padding(

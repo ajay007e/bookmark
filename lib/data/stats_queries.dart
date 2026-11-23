@@ -2,10 +2,8 @@ import 'package:drift/drift.dart';
 
 import 'app_database.dart';
 
-/// Totals for the small card on the You tab.
 typedef WatchStats = ({int minutes, int movies, int episodes, int books});
 
-/// One counted watch or read ("watched now"), with what the stats screens need.
 class StatEntry {
   const StatEntry({
     required this.type,
@@ -25,14 +23,18 @@ class StatEntry {
   final String? author;
   final int? pageCount;
   final DateTime watchedAt;
+  final int minutes;
+}
 
-  /// 0 for books and for items with no saved runtime.
+class ReadEntry {
+  const ReadEntry({required this.readAt, required this.pages, required this.minutes});
+
+  final DateTime readAt;
+  final int? pages;
   final int minutes;
 }
 
 extension StatsQueries on AppDatabase {
-  /// Every history row marked "watched now", from [since] on (null = all time).
-  /// A series has one row per episode. A rewatch is another row.
   Stream<List<StatEntry>> watchStatEntries(DateTime? since) {
     Expression<bool> condition = watchLogs.counted.equals(true);
     if (since != null) {
@@ -67,7 +69,23 @@ extension StatsQueries on AppDatabase {
     });
   }
 
-  /// Small totals for the card on the You tab.
+  Stream<List<ReadEntry>> watchReadEntries(DateTime? since) {
+    final query = select(readingLogs);
+    if (since != null) {
+      query.where((l) => l.readAt.isBiggerOrEqualValue(since));
+    }
+    return query.watch().map((rows) => [
+      for (final r in rows)
+        ReadEntry(readAt: r.readAt, pages: r.pages, minutes: r.minutes ?? 0),
+    ]);
+  }
+
+  Stream<Set<DateTime>> watchReadDays() =>
+      select(readingLogs).watch().map((rows) => {
+        for (final r in rows)
+          DateTime(r.readAt.year, r.readAt.month, r.readAt.day),
+      });
+
   Stream<WatchStats> watchStats(DateTime? since) =>
       watchStatEntries(since).map((entries) {
         var minutes = 0;

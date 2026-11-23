@@ -1,13 +1,12 @@
 import 'package:drift/drift.dart';
+
 import 'app_database.dart';
 
 String? _iso(DateTime? d) => d?.toUtc().toIso8601String();
 
-/// Version of the backup file layout. Raise it if the layout ever changes.
 const backupFormat = 1;
 
 extension ExportQueries on AppDatabase {
-  /// Everything in the database as plain maps and lists, ready for jsonEncode.
   Future<Map<String, Object?>> exportData() async {
     final items = await (select(mediaItems)
       ..orderBy([(t) => OrderingTerm.asc(t.id)]))
@@ -16,6 +15,9 @@ extension ExportQueries on AppDatabase {
       ..orderBy([(t) => OrderingTerm.asc(t.id)]))
         .get();
     final logs = await (select(watchLogs)
+      ..orderBy([(t) => OrderingTerm.asc(t.id)]))
+        .get();
+    final reading = await (select(readingLogs)
       ..orderBy([(t) => OrderingTerm.asc(t.id)]))
         .get();
     final lists = await (select(userLists)
@@ -32,6 +34,7 @@ extension ExportQueries on AppDatabase {
         'mediaItems': items.length,
         'episodes': eps.length,
         'watchLogs': logs.length,
+        'readingLogs': reading.length,
         'userLists': lists.length,
         'listEntries': entries.length,
       },
@@ -53,6 +56,7 @@ extension ExportQueries on AppDatabase {
             'author': i.author,
             'pageCount': i.pageCount,
             'currentPage': i.currentPage,
+            'progressUnit': i.progressUnit?.name,
             'dropReason': i.dropReason,
             'droppedAtPage': i.droppedAtPage,
             'addedAt': _iso(i.addedAt),
@@ -82,6 +86,19 @@ extension ExportQueries on AppDatabase {
             'watchedAt': _iso(l.watchedAt),
             'counted': l.counted,
             'minutes': l.minutes,
+          },
+      ],
+      'readingLogs': [
+        for (final r in reading)
+          {
+            'id': r.id,
+            'itemId': r.itemId,
+            'readAt': _iso(r.readAt),
+            'fromPage': r.fromPage,
+            'toPage': r.toPage,
+            'pages': r.pages,
+            'minutes': r.minutes,
+            'inPercent': r.inPercent,
           },
       ],
       'userLists': [

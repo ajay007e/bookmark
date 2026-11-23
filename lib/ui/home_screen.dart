@@ -4,15 +4,17 @@ import 'package:go_router/go_router.dart';
 
 import '../data/app_database.dart';
 import '../data/hero_queries.dart';
+import '../data/reading_queries.dart';
 import '../providers.dart';
+import 'reading_actions.dart';
 import 'search_screen.dart';
 import 'series_actions.dart';
+import 'widgets/app_nav_bar.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/poster_card.dart';
-import 'widgets/app_nav_bar.dart';
 import 'widgets/premium_app_bar.dart';
+import 'widgets/session_card.dart';
 
-/// Movies in Want to watch, shown after the active items in the hero.
 final _wantMoviesHeroProvider = StreamProvider<List<MediaItem>>(
       (ref) => ref.watch(databaseProvider).wantMoviesForHero(limit: 10),
 );
@@ -52,7 +54,6 @@ class HomeScreen extends ConsumerWidget {
           children: [
             hero.when(
               data: (active) {
-                // Active items first, then Want movies (newest added first).
                 final wanted = wantMovies.maybeWhen<List<MediaItem>>(
                   data: (l) => l,
                   orElse: () => const <MediaItem>[],
@@ -165,7 +166,6 @@ class _HeroCard extends ConsumerWidget {
 
     var subtitle = switch (item.type) {
       MediaType.book => 'Reading',
-    // Movies in the hero are either Watching (old data) or Want to watch.
       MediaType.movie =>
       item.status == Status.want ? 'Want to watch' : 'Watching',
       MediaType.series => 'Up next',
@@ -177,7 +177,6 @@ class _HeroCard extends ConsumerWidget {
       if (hasNew) subtitle = 'New episode available';
     }
 
-    // The same round tick for series, books and movies.
     Widget tick(String tooltip, VoidCallback onPressed) => IconButton.filled(
       tooltip: tooltip,
       style: IconButton.styleFrom(
@@ -200,7 +199,6 @@ class _HeroCard extends ConsumerWidget {
 
     final Widget titleBlock;
     if (isSeries) {
-      // Title, then "S2 E5 · Episode title" with the tick at the end.
       final n = next;
       titleBlock = Column(
         mainAxisSize: MainAxisSize.min,
@@ -235,15 +233,67 @@ class _HeroCard extends ConsumerWidget {
           ],
         ],
       );
+    } else if (isBook) {
+      final pages = item.unit == ProgressUnit.pages;
+      final label = pages
+          ? 'Page ${item.currentPage}/${item.pageCount}'
+          : '${item.currentPage}%';
+      final fraction = item.progressMax == 0
+          ? 0.0
+          : (item.currentPage / item.progressMax).clamp(0.0, 1.0);
+
+      titleBlock = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(child: title),
+              const SizedBox(width: 12),
+              IconButton.filled(
+                tooltip: 'Update progress',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white24,
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.trending_up),
+                onPressed: () => updateProgressFlow(context, ref, item),
+              ),
+              const SizedBox(width: 8),
+              tick(
+                'Mark as read',
+                    () => db.markBookRead(item.id, counted: true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              minHeight: 6,
+              value: fraction,
+              backgroundColor: Colors.white24,
+              color: Colors.white,
+            ),
+          ),
+          Row(
+            children: [
+              Text(label, style: text.bodyMedium?.copyWith(color: Colors.white70)),
+              const Spacer(),
+              HeroSessionButton(item: item),
+            ],
+          ),
+        ],
+      );
     } else {
-      // Books and movies: the tick sits at the end of the title.
       titleBlock = Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(child: title),
           const SizedBox(width: 12),
           tick(
-            isBook ? 'Mark as read' : 'Mark as watched',
+            'Mark as watched',
                 () => db.markDone(item, counted: true),
           ),
         ],
@@ -321,7 +371,7 @@ class _PosterRow extends StatelessWidget {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 itemCount: list.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
                 itemBuilder: (_, i) => PosterCard(item: list[i], width: 110),
               ),
             ),

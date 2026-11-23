@@ -1,33 +1,103 @@
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
 final _plugin = FlutterLocalNotificationsPlugin();
 
-/// Call in main() and in the worker. Each isolate needs its own setup.
-/// [onTap] is called with the payload when a notification is tapped while
-/// the app is running. Only pass it from the app, not from the worker.
+const _checkInId = 900000001;
+const _stoppedId = 900000002;
+const _sessionId = 900000003;
+
+const stopActionId = 'stop_session';
+const _alarmChannelId = 'reading_alarm_v3';
+const _oldChannels = ['reading_checkin_alarm', 'reading_checkin_alarm_v2'];
+
+const _stoppedDetails = NotificationDetails(
+  android: AndroidNotificationDetails(
+    'reading_session',
+    'Reading sessions',
+    channelDescription: 'Tells you when a reading session stopped',
+    importance: Importance.high,
+    priority: Priority.high,
+  ),
+);
+
+final _alarmChannel = AndroidNotificationChannel(
+  _alarmChannelId,
+  'Reading alarm (sound)',
+  description: 'Rings like an alarm when a reading session asks if you are still reading',
+  importance: Importance.max,
+  playSound: true,
+  sound: const UriAndroidNotificationSound('content://settings/system/alarm_alert'),
+  audioAttributesUsage: AudioAttributesUsage.alarm,
+  enableVibration: true,
+  vibrationPattern: Int64List.fromList([0, 800, 400, 800, 400, 800, 400, 800]),
+);
+
+NotificationDetails _alarmDetails(DateTime at, DateTime deadline) {
+  return NotificationDetails(
+    android: AndroidNotificationDetails(
+      _alarmChannelId,
+      'Reading alarm (sound)',
+      importance: Importance.max,
+      priority: Priority.max,
+      category: AndroidNotificationCategory.alarm,
+      audioAttributesUsage: AudioAttributesUsage.alarm,
+      sound: const UriAndroidNotificationSound('content://settings/system/alarm_alert'),
+      playSound: true,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 800, 400, 800, 400, 800, 400, 800]),
+      additionalFlags: Int32List.fromList(<int>[4]),
+      fullScreenIntent: true,
+      visibility: NotificationVisibility.public,
+      ongoing: true,
+      autoCancel: true,
+      timeoutAfter: deadline.difference(at).inMilliseconds,
+      showWhen: true,
+      when: deadline.millisecondsSinceEpoch,
+      usesChronometer: true,
+      chronometerCountDown: true,
+    ),
+  );
+}
+
+String? _payloadOf(NotificationResponse response) =>
+    response.actionId == stopActionId ? 'stop' : response.payload;
+
 Future<void> initNotifications({void Function(String? payload)? onTap}) async {
+  tzdata.initializeTimeZones();
   const settings = InitializationSettings(
     android: AndroidInitializationSettings('@mipmap/ic_launcher'),
   );
   await _plugin.initialize(
     settings: settings,
-    onDidReceiveNotificationResponse: (response) => onTap?.call(response.payload),
+    onDidReceiveNotificationResponse: (response) =>
+        onTap?.call(_payloadOf(response)),
   );
+
+  final android = _plugin.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
+  try {
+    await android?.createNotificationChannel(_alarmChannel);
+    for (final id in _oldChannels) {
+      await android?.deleteNotificationChannel(channelId: id);
+    }
+  } catch (e) {
+    debugPrint('[Session] channel setup failed: $e');
+  }
 }
 
-/// If the app was closed and a notification tap started it, returns that
-/// notification's payload. Otherwise null.
 Future<String?> notificationLaunchPayload() async {
   final details = await _plugin.getNotificationAppLaunchDetails();
   if (details == null || !details.didNotificationLaunchApp) return null;
-  return details.notificationResponse?.payload;
+  final response = details.notificationResponse;
+  return response == null ? null : _payloadOf(response);
 }
 
-/// Asks for the Android 13+ notification permission (shows a system dialog
-/// the first time). Call from the app only, never from the worker.
 Future<void> requestNotificationPermission() async {
   await _plugin
       .resolvePlatformSpecificImplementation<
@@ -35,8 +105,25 @@ Future<void> requestNotificationPermission() async {
       ?.requestNotificationsPermission();
 }
 
-/// Downloads an image so it can be attached to a notification.
-/// Returns null on any failure: the notification is then shown without it.
+Future<bool> exactAlarmsAllowed() async {
+  final android = _plugin.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
+  try {
+    return await android?.canScheduleExactNotifications() ?? false;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<void> openExactAlarmSettings() async {
+  try {
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestExactAlarmsPermission();
+  } catch (_) {}
+}
+
 Future<ByteArrayAndroidBitmap?> _download(String? url) async {
   if (url == null) return null;
   try {
@@ -56,10 +143,6 @@ Future<ByteArrayAndroidBitmap?> _download(String? url) async {
   }
 }
 
-/// [id] is the series id, so a second notification for the same series
-/// replaces the first instead of stacking. The same id is the payload, so
-/// a tap knows which series page to open.
-/// [imageUrl] is a wide picture shown when the notification is expanded.
 Future<void> showNewEpisodes({
   required int id,
   required String title,
@@ -69,8 +152,8 @@ Future<void> showNewEpisodes({
   final picture = await _download(imageUrl);
 
   final details = AndroidNotificationDetails(
-    'new_episodes', // channel id
-    'New episodes', // name shown in Android's notification settings
+    'new_episodes',
+    'New episodes',
     channelDescription: 'Tells you when a series you follow has a new episode',
     importance: Importance.defaultImportance,
     styleInformation: picture == null
@@ -89,4 +172,102 @@ Future<void> showNewEpisodes({
     notificationDetails: NotificationDetails(android: details),
     payload: '$id',
   );
+}
+
+Future<void> showSessionNotification({
+  required int itemId,
+  required String title,
+  required DateTime startedAt,
+}) async {
+  try {
+    await _plugin.show(
+      id: _sessionId,
+      title: 'Reading session',
+      body: title,
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          'reading_timer',
+          'Reading timer',
+          channelDescription: 'Shows the running time of a reading session',
+          importance: Importance.low,
+          priority: Priority.low,
+          ongoing: true,
+          autoCancel: false,
+          onlyAlertOnce: true,
+          showWhen: true,
+          when: startedAt.millisecondsSinceEpoch,
+          usesChronometer: true,
+          visibility: NotificationVisibility.public,
+          actions: const [
+            AndroidNotificationAction(
+              stopActionId,
+              'Stop',
+              showsUserInterface: true,
+              cancelNotification: false,
+            ),
+          ],
+        ),
+      ),
+      payload: '$itemId',
+    );
+  } catch (_) {}
+}
+
+Future<void> cancelSessionNotification() async {
+  try {
+    await _plugin.cancel(id: _sessionId);
+  } catch (_) {}
+}
+
+Future<void> scheduleCheckIn({
+  required String title,
+  required DateTime at,
+  required DateTime deadline,
+}) async {
+  final exact = await exactAlarmsAllowed();
+  final mode = exact
+      ? AndroidScheduleMode.alarmClock
+      : AndroidScheduleMode.inexactAllowWhileIdle;
+  final soon = DateTime.now().add(const Duration(seconds: 2));
+  debugPrint('[Session] check-in alarm set for $at, exact allowed: $exact, mode: $mode');
+
+  try {
+    if (at.isAfter(soon)) {
+      await _plugin.zonedSchedule(
+        id: _checkInId,
+        title: 'Still reading?',
+        body: 'Answer before the countdown ends or "$title" stops.',
+        scheduledDate: tz.TZDateTime.from(at, tz.UTC),
+        notificationDetails: _alarmDetails(at, deadline),
+        androidScheduleMode: mode,
+        payload: 'checkin',
+      );
+    }
+    if (deadline.isAfter(soon)) {
+      await _plugin.zonedSchedule(
+        id: _stoppedId,
+        title: 'Reading session stopped',
+        body: '"$title" had no answer. Open Bookmark to update your progress.',
+        scheduledDate: tz.TZDateTime.from(deadline, tz.UTC),
+        notificationDetails: _stoppedDetails,
+        androidScheduleMode: mode,
+        payload: 'checkin',
+      );
+    }
+  } catch (e) {
+    debugPrint('[Session] could not schedule the check-in: $e');
+  }
+}
+
+Future<void> cancelCheckInAlert() async {
+  try {
+    await _plugin.cancel(id: _checkInId);
+  } catch (_) {}
+}
+
+Future<void> cancelCheckIn() async {
+  try {
+    await _plugin.cancel(id: _checkInId);
+    await _plugin.cancel(id: _stoppedId);
+  } catch (_) {}
 }

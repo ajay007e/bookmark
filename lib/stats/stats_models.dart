@@ -14,11 +14,9 @@ enum StatsPeriod {
   final String label;
   final String heading;
 
-  /// Start of the period (calendar based), or null for all time.
   DateTime? get since {
     final n = DateTime.now();
     return switch (this) {
-    // Monday of this week, at midnight
       StatsPeriod.week => DateTime(n.year, n.month, n.day - (n.weekday - 1)),
       StatsPeriod.month => DateTime(n.year, n.month),
       StatsPeriod.year => DateTime(n.year),
@@ -47,7 +45,6 @@ enum StatsFilter {
 
 typedef StatsKey = ({StatsPeriod period, StatsFilter filter});
 
-/// 95 -> "1h 35m", 40 -> "40m", 120 -> "2h".
 String formatDuration(int minutes) {
   if (minutes < 60) return '${minutes}m';
   final h = minutes ~/ 60;
@@ -55,7 +52,6 @@ String formatDuration(int minutes) {
   return m == 0 ? '${h}h' : '${h}h ${m}m';
 }
 
-/// One bar of the activity chart.
 class StatBar {
   const StatBar(this.label, this.value);
 
@@ -66,6 +62,7 @@ class StatBar {
 class StatsSummary {
   const StatsSummary({
     required this.entries,
+    required this.hasActivity,
     required this.titles,
     required this.minutes,
     required this.movies,
@@ -85,13 +82,16 @@ class StatsSummary {
     required this.topTitle,
     required this.topMinutes,
     required this.pages,
-    required this.avgPages,
+    required this.readingMinutes,
+    required this.currentStreak,
+    required this.longestStreak,
     required this.topAuthor,
     required this.topAuthorCount,
   });
 
-  final int entries; // counted watches or reads
-  final int titles; // different movies, series or books
+  final int entries;
+  final bool hasActivity;
+  final int titles;
   final int minutes;
   final int movies;
   final int episodes;
@@ -99,36 +99,62 @@ class StatsSummary {
   final int movieMinutes;
   final int seriesMinutes;
   final int activeDays;
-  final int avgPerDay; // minutes, or books when the Books view is open
+  final int avgPerDay;
   final DateTime? busiestDay;
-  final int busiestValue; // minutes, or books when the Books view is open
+  final int busiestValue;
   final List<StatBar> bars;
   final List<({String name, int titles})> genres;
-  final int avgMinutes; // average movie length or episode length
+  final int avgMinutes;
   final String? longestTitle;
   final int longestMinutes;
-  final String? topTitle; // most watched movie or series (by time)
+  final String? topTitle;
   final int topMinutes;
   final int pages;
-  final int avgPages;
+  final int readingMinutes;
+  final int currentStreak;
+  final int longestStreak;
   final String? topAuthor;
   final int topAuthorCount;
 }
 
-/// Turns the raw history rows into every number the stats page shows.
+typedef _Point = ({DateTime at, int value});
+
+({int current, int longest}) _streaks(Set<DateTime> days, DateTime now) {
+  if (days.isEmpty) return (current: 0, longest: 0);
+
+  final sorted = days.toList()..sort();
+  var longest = 1;
+  var run = 1;
+  for (var i = 1; i < sorted.length; i++) {
+    final prev = sorted[i - 1];
+    final next = DateTime(prev.year, prev.month, prev.day + 1);
+    run = sorted[i] == next ? run + 1 : 1;
+    longest = math.max(longest, run);
+  }
+
+  var cursor = DateTime(now.year, now.month, now.day);
+  if (!days.contains(cursor)) {
+    cursor = DateTime(cursor.year, cursor.month, cursor.day - 1);
+  }
+  var current = 0;
+  while (days.contains(cursor)) {
+    current++;
+    cursor = DateTime(cursor.year, cursor.month, cursor.day - 1);
+  }
+  return (current: current, longest: longest);
+}
+
 StatsSummary buildSummary(
     List<StatEntry> all,
     StatsFilter filter,
     StatsPeriod period,
-    DateTime now,
-    ) {
+    DateTime now, {
+      List<ReadEntry> reads = const [],
+      Set<DateTime> readDays = const {},
+    }) {
   final list = all.where((e) => filter.accepts(e.type)).toList();
+  final bookView = filter == StatsFilter.books;
 
-  // The Books view counts books. Every other view counts minutes.
-  final countMode = filter == StatsFilter.books;
-  int valueOf(StatEntry e) => countMode ? 1 : e.minutes;
-
-  // ---- totals ----
   var minutes = 0;
   var movies = 0;
   var episodes = 0;
@@ -150,13 +176,22 @@ StatsSummary buildSummary(
   }
   final titles = {for (final e in list) e.itemId}.length;
 
-  // ---- active days and busiest day ----
   final perDay = <DateTime, int>{};
   var total = 0;
-  for (final e in list) {
-    final d = DateTime(e.watchedAt.year, e.watchedAt.month, e.watchedAt.day);
-    perDay[d] = (perDay[d] ?? 0) + valueOf(e);
-    total += valueOf(e);
+  if (bookView) {
+    for (final r in reads) {
+      final p = r.pages ?? 0;
+      if (p <= 0) continue;
+      final d = DateTime(r.readAt.year, r.readAt.month, r.readAt.day);
+      perDay[d] = (perDay[d] ?? 0) + p;
+      total += p;
+    }
+  } else {
+    for (final e in list) {
+      final d = DateTime(e.watchedAt.year, e.watchedAt.month, e.watchedAt.day);
+      perDay[d] = (perDay[d] ?? 0) + e.minutes;
+      total += e.minutes;
+    }
   }
   DateTime? busiestDay;
   var busiestValue = 0;
@@ -166,10 +201,14 @@ StatsSummary buildSummary(
       busiestDay = entry.key;
     }
   }
-  final activeDays = perDay.length;
-  final avgPerDay = activeDays == 0 ? 0 : (total / activeDays).round();
+  final avgPerDay = perDay.isEmpty ? 0 : (total / perDay.length).round();
+  final activeDays = bookView
+      ? {
+    for (final r in reads)
+      DateTime(r.readAt.year, r.readAt.month, r.readAt.day),
+  }.length
+      : perDay.length;
 
-  // ---- genres, by number of different titles ----
   final byGenre = <String, Set<int>>{};
   for (final e in list) {
     for (final g in e.genres) {
@@ -182,7 +221,6 @@ StatsSummary buildSummary(
       ? b.titles.compareTo(a.titles)
       : a.name.compareTo(b.name));
 
-  // ---- movies and series ----
   final timed = list.where((e) => e.minutes > 0).toList();
   final avgMinutes = timed.isEmpty
       ? 0
@@ -209,17 +247,9 @@ StatsSummary buildSummary(
     }
   }
 
-  // ---- books ----
-  var pages = 0;
-  var pageBooks = 0;
   final byAuthor = <String, int>{};
   for (final e in list) {
     if (e.type != MediaType.book) continue;
-    final p = e.pageCount ?? 0;
-    if (p > 0) {
-      pages += p;
-      pageBooks++;
-    }
     final a = e.author;
     if (a != null && a.isNotEmpty) byAuthor[a] = (byAuthor[a] ?? 0) + 1;
   }
@@ -232,8 +262,17 @@ StatsSummary buildSummary(
     }
   }
 
+  final streaks = bookView ? _streaks(readDays, now) : (current: 0, longest: 0);
+  final points = bookView
+      ? <_Point>[
+    for (final r in reads)
+      if ((r.pages ?? 0) > 0) (at: r.readAt, value: r.pages!),
+  ]
+      : <_Point>[for (final e in list) (at: e.watchedAt, value: e.minutes)];
+
   return StatsSummary(
     entries: list.length,
+    hasActivity: bookView ? (list.isNotEmpty || reads.isNotEmpty) : list.isNotEmpty,
     titles: titles,
     minutes: minutes,
     movies: movies,
@@ -245,27 +284,23 @@ StatsSummary buildSummary(
     avgPerDay: avgPerDay,
     busiestDay: busiestDay,
     busiestValue: busiestValue,
-    bars: _bars(list, period, now, valueOf),
+    bars: _bars(points, period, now),
     genres: genreList.take(8).toList(),
     avgMinutes: avgMinutes,
     longestTitle: longest?.title,
     longestMinutes: longest?.minutes ?? 0,
     topTitle: topId == null ? null : titleOf[topId],
     topMinutes: topMinutes,
-    pages: pages,
-    avgPages: pageBooks == 0 ? 0 : (pages / pageBooks).round(),
+    pages: bookView ? total : 0,
+    readingMinutes: bookView ? reads.fold<int>(0, (s, r) => s + r.minutes) : 0,
+    currentStreak: streaks.current,
+    longestStreak: streaks.longest,
     topAuthor: topAuthor,
     topAuthorCount: topAuthorCount,
   );
 }
 
-/// The bars of the activity chart: days, months or years, depending on the period.
-List<StatBar> _bars(
-    List<StatEntry> list,
-    StatsPeriod period,
-    DateTime now,
-    int Function(StatEntry) valueOf,
-    ) {
+List<StatBar> _bars(List<_Point> points, StatsPeriod period, DateTime now) {
   final List<String> labels;
   final int Function(DateTime) indexOf;
 
@@ -285,9 +320,9 @@ List<StatBar> _bars(
       labels = const ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
       indexOf = (d) => d.month - 1;
     case StatsPeriod.all:
-      final first = list.isEmpty
+      final first = points.isEmpty
           ? now.year
-          : list.map((e) => e.watchedAt.year).reduce(math.min);
+          : points.map((p) => p.at.year).reduce(math.min);
       final count = now.year - first + 1;
       labels = [
         for (var i = 0; i < count; i++)
@@ -297,9 +332,9 @@ List<StatBar> _bars(
   }
 
   final values = List<int>.filled(labels.length, 0);
-  for (final e in list) {
-    final i = indexOf(e.watchedAt);
-    if (i >= 0 && i < values.length) values[i] += valueOf(e);
+  for (final p in points) {
+    final i = indexOf(p.at);
+    if (i >= 0 && i < values.length) values[i] += p.value;
   }
   return [for (var i = 0; i < labels.length; i++) StatBar(labels[i], values[i])];
 }

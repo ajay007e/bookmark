@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 
-/// "Name (year)" with a button on the right. The button never makes the row
-/// taller than the title, so the content below stays close to the title.
 class TitleRow extends StatelessWidget {
   const TitleRow({
     super.key,
     required this.title,
     this.year,
     required this.trailing,
+    this.trailingWidth = 40,
   });
 
   final String title;
   final int? year;
   final Widget trailing;
+  final double trailingWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -43,15 +43,13 @@ class TitleRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // A 36px slot: the button may overhang it slightly without
-          // pushing anything down.
           SizedBox(
-            width: 40,
+            width: trailingWidth,
             height: 36,
             child: OverflowBox(
               minHeight: 0,
               maxHeight: 44,
-              alignment: Alignment.topCenter,
+              alignment: Alignment.topRight,
               child: trailing,
             ),
           ),
