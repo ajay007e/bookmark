@@ -4,6 +4,7 @@
 
 Bookmark is a personal Android app for tracking books, movies and series.
 No login or accounts. All data lives in a local database on the phone.
+Current version: 1.0.0 (first release).
 
 ## Environment
 
@@ -30,34 +31,50 @@ No login or accounts. All data lives in a local database on the phone.
 - dio for API calls
 - url_launcher for the "Watch now" links
 - workmanager for the daily new-episode check
-- flutter_local_notifications and timezone for notifications (new episodes, reading session)
+- flutter_local_notifications (22.x) and timezone for notifications (new episodes, reading session)
 - shared_preferences (`SharedPreferencesAsync`, safe to use from the app and the worker) for the last-check
-  time, the daily check switch, the theme, the accent colour, the streaming region and the running reading session
+  time, the daily check switch, the theme, the accent colour, the streaming region, the reading session timing
+  and the running reading session
 - share_plus and path_provider for the JSON export (Android share sheet, no storage permission)
-- file_picker for choosing a backup file to import (no storage permission)
+- file_picker for choosing a backup file to import (no storage permission). `pubspec.yaml` has a
+  `dependency_overrides` entry for `android_file_picker` (2.1.6): keep it until file_picker is updated.
 - package_info_plus for the real app version in About
 - Data sources: TMDB (movies, series, episodes, streaming availability; free API key kept in lib/config/secrets.dart, gitignored) and Open Library (books)
 - Streaming availability comes from TMDB's watch-provider data, which is supplied by JustWatch.
   Shown for the region chosen in You > Streaming (Australia by default, `watchRegion = 'AU'` in tmdb_client.dart
   is only the default) with the credit line "Streaming data by JustWatch, via TMDB."
 
-## Android setup
+## Android setup and release
 
-- `AndroidManifest.xml` has the app label `Bookmark` (capital B) and these permissions:
+- `AndroidManifest.xml` uses `android:label="${appLabel}"` and has these permissions:
   `POST_NOTIFICATIONS` (Android 13+), `VIBRATE`, `WAKE_LOCK`, `USE_FULL_SCREEN_INTENT`, `USE_EXACT_ALARM`, and
   `SCHEDULE_EXACT_ALARM` limited to Android 12 and lower (`maxSdkVersion="32"`).
-  `USE_EXACT_ALARM` is granted automatically on Android 13+ (no "Alarms & reminders" toggle). If the app is ever
-  published on Google Play, this permission needs a justification (Play restricts it to alarm and calendar apps);
-  otherwise use `SCHEDULE_EXACT_ALARM` only.
+  `USE_EXACT_ALARM` is granted automatically on Android 13+ (no "Alarms & reminders" toggle). It is meant for alarm
+  and calendar apps: if the app is ever published on Google Play it needs a justification, otherwise use
+  `SCHEDULE_EXACT_ALARM` only.
 - The main activity has `showWhenLocked` and `turnScreenOn` so a reading check-in can appear over the lock screen.
 - The `ScheduledNotificationReceiver` of flutter_local_notifications is declared inside `<application>`
   (as a sibling of `<activity>`, never inside it).
+- `android/app/build.gradle.kts`:
+  - `applicationId = "com.ajay007e.bookmark"` (release). The debug build has the suffix `.debug` and the label
+    "Bookmark Dev", so both can be installed side by side. The release label is "Bookmark". `namespace` stays
+    `com.example.bookmark` (no code moves).
+  - Release builds are signed with my own key: `~/keys/bookmark-release.jks` (alias `bookmark`), described in
+    `android/key.properties` (never committed, listed in `android/.gitignore`). If `key.properties` is missing the
+    release build fails on purpose (no silent fallback to the debug key). The key and its passwords must be
+    backed up outside this laptop: losing them means an update cannot install over the app.
+  - Core library desugaring is enabled (`isCoreLibraryDesugaringEnabled = true` and
+    `coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")`), which flutter_local_notifications needs.
+- The launcher icon is my own (configured).
+- Build and install (phone is arm64): `flutter clean`, `flutter build apk --release --target-platform android-arm64`,
+  `adb install build/app/outputs/flutter-apk/app-release.apk`. Release APK size: 23.7 MB.
+- A different app ID or signing key means a new app: the library moves over with Export to JSON and Import from
+  JSON, and Android settings (battery Unrestricted, "Full screen notifications") must be set again.
 - On Android 14, allow "Full screen notifications" for Bookmark in Settings > Apps > Bookmark > Notifications if the
   alarm only shows as a banner. Set Bookmark's battery use to Unrestricted for on-time alarms (OnePlus: also allow
   background activity and auto-launch).
-- `android/app/build.gradle.kts` enables core library desugaring
-  (`isCoreLibraryDesugaringEnabled = true` and `coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")`),
-  which flutter_local_notifications needs to build.
+- `flutter pub outdated` (before 1.0.0): only `cupertino_icons` (2.0.0, not used by app code) and
+  `flutter_local_notifications` (23.0.4, a major update) are behind. `workmanager` is already the latest version.
 
 ## Statuses
 
@@ -177,12 +194,16 @@ Code: `lib/data/reading_queries.dart` (progress logic), `lib/ui/reading_actions.
   stats. Back to Want deletes the reading log rows and resets the progress to 0.
 - **ReadingLogs** (itemId, readAt, fromPage, toPage, pages, minutes, inPercent): one row per forward progress
   move or timed update. `pages` is empty for a book with no page count (its rows are in percent).
+  After an automatic stop the row's `readAt` is the time of the last "still reading" confirmation (when the
+  session actually ended), not the time the progress sheet was saved.
 
 ## Reading session (focus timer)
 
-Code: `lib/reading/reading_session_provider.dart`, `lib/ui/session_actions.dart`,
-`lib/ui/widgets/session_button.dart`, `lib/ui/widgets/session_card.dart` (`ElapsedText`, `HeroSessionButton`),
-`lib/ui/check_in_dialog.dart`, `lib/background/notifications.dart`, `lib/main.dart`.
+Code: `lib/reading/reading_session_provider.dart`, `lib/settings/reading_settings.dart`,
+`lib/settings/reading_settings_provider.dart`, `lib/ui/widgets/reading_times_sheet.dart`,
+`lib/ui/session_actions.dart`, `lib/ui/widgets/session_button.dart`,
+`lib/ui/widgets/session_card.dart` (`ElapsedText`, `HeroSessionButton`), `lib/ui/check_in_dialog.dart`,
+`lib/background/notifications.dart`, `lib/main.dart`.
 
 - **Session button:** on the book page, while the book is Reading, a round button sits beside the tick (the title
   row gives it extra width, `TitleRow.trailingWidth`). No session: a progress ring with the percentage inside.
@@ -193,29 +214,34 @@ Code: `lib/reading/reading_session_provider.dart`, `lib/ui/session_actions.dart`
 - **Hero card of a Reading book:** progress bar, "Page X/Y" (or "X%"), an Update progress button beside the tick,
   and a Start session / elapsed time button.
 - **Counting:** from the saved start time (not from a ticking counter), so it survives a locked screen and a closed
-  app. The session is saved in SharedPreferencesAsync (`readingSession`). Only one session runs at a time.
-- **Check-in:** every 15 minutes (`checkInEvery`) the app asks "Still reading?" and the user has 2 minutes
-  (`answerWithin`) to answer. The check-in popup fires at the exact second (a one-shot timer).
-  - App open: a red alarm-style dialog with a shrinking countdown ring, big countdown and vibration each second.
+  app. The session is saved in SharedPreferencesAsync (`readingSession`), together with its own check-in and answer
+  time. Only one session runs at a time.
+- **Timing setting:** You > Reading session > Check-in timing opens one sheet with two choices: Check-in every
+  (5, 10, 15, 20, 30, 45 or 60 minutes, default 15) and Time to answer (1, 2, 3 or 5 minutes, default 2).
+  It applies to the next session: a running session keeps the timing it started with.
+  There are no alarm sound, vibration or test settings: the alarm always uses the phone's default alarm sound and
+  volume.
+- **Check-in:** every "check-in every" the app asks "Still reading?" and the user has "time to answer" to answer.
+  The check-in popup fires at the exact second (a one-shot timer).
+  - App open: a red alarm-style dialog with a shrinking countdown ring, big countdown and a buzz each second.
     "Yes, still reading" continues, "Stop session" or running out of time stops the session.
-  - Phone locked or app in the background: an alarm notification on the channel `reading_alarm_v3`
-    ("Reading alarm (sound)", created at startup with the default alarm ringtone and alarm audio usage,
-    insistent, full-screen, vibration pattern, live countdown). It is scheduled in alarm-clock mode (exact) and
+  - Phone locked or app in the background: an alarm notification on the channel `reading_alarm_v4`
+    ("Reading alarm", created at startup with the default alarm ringtone and alarm audio usage, insistent,
+    full-screen, vibration pattern, live countdown). It is scheduled in alarm-clock mode (exact) and
     rings until the user answers; it is cancelled only after the answer. At the deadline a "Reading session stopped"
     notification is shown. The alarms are rescheduled every time the app resumes.
   - The alarm follows the alarm volume of the phone.
 - **Automatic stop:** the time counted is up to the last confirmation. It is saved as a pending update
-  (`readingPendingUpdate`) and nothing is logged yet. The next time the app is in front of the user (or on launch),
-  a **mandatory** progress sheet opens: not dismissible (no cancel, no swipe, back blocked), time fixed, only a
-  "Save progress" button. Until it is saved nothing else in the app can be used.
+  (`readingPendingUpdate`, with the end time) and nothing is logged yet. The next time the app is in front of the
+  user (or on launch), a **mandatory** progress sheet opens: not dismissible (no cancel, no swipe, back blocked),
+  time fixed, only a "Save progress" button. Until it is saved nothing else in the app can be used.
 - **Running notification:** an ongoing, silent notification "Reading session" with the book title, a counting
   chronometer and a **Stop** button (opens the app on the stop flow, also from a closed app). Tapping the
   notification opens the book. It is rebuilt when the app resumes. Channel: "Reading timer".
 - **Manual stop** or finishing the book from the "Finished?" prompt ends the session. Marking the book Read or Did
   not complete while a session runs drops that session's minutes (stop the session first).
-- **Channels:** Reading alarm (sound), Reading timer, Reading sessions (the stopped notice), New episodes.
-  The old channels `reading_checkin_alarm` and `reading_checkin_alarm_v2` are deleted at startup.
-- Optional later: a big Clock-style number notification needs native Android code (a custom layout).
+- **Channels:** Reading alarm, Reading timer, Reading sessions (the stopped notice), New episodes. Older channels
+  from development builds are deleted at startup.
 
 ## Input rules
 
@@ -278,13 +304,15 @@ One scrolling page: stats on top, then grouped settings.
 - **New episodes:** "Daily check" switch, on by default, saved as `dailyCheckEnabled`
   (`lib/settings/daily_check_provider.dart`). Turning it off cancels the workmanager task, turning it on
   schedules it again. The worker also checks the setting before it runs. Tapping the whole row toggles it.
+- **Reading session:** one row, "Check-in timing" (for example "Every 15 minutes, 2 minutes to answer"). It opens a
+  sheet with both choices, Check-in every and Time to answer, with Cancel and Save.
 - **Streaming:** "Region" row showing the country and code (for example "Australia (AU)"). Tapping it opens a
   scrollable sheet of 46 countries with a tick on the current one (`lib/ui/widgets/region_sheet.dart`).
   The choice is saved as `watchRegion` in SharedPreferencesAsync (`lib/settings/region_provider.dart`,
   default AU). It decides the "Watch now" options, the age rating and the release date: the chosen region
   is tried first, then the US. Open detail pages reload when it changes. Another country is added with one
   line in the `regions` list.
-- **Backup and data:** Export to JSON and Import from JSON, both working (see Backup below).
+- **Backup and data:** Export to JSON and Import from JSON (see Backup below).
 - **About:** the real semantic version, for example "1.0.0" (the build number after the `+` in pubspec.yaml is
   not shown), read with package_info_plus (`lib/settings/app_info_provider.dart`), and a
   "Credits and data sources" sheet (TMDB notice, JustWatch line, Open Library).
@@ -309,11 +337,6 @@ One scrolling page: stats on top, then grouped settings.
 - Code: `lib/data/stats_queries.dart` (queries), `lib/stats/stats_models.dart` (periods, filters and all
   the numbers), `lib/stats/stats_provider.dart` (providers), `lib/ui/stats_screen.dart`,
   `lib/ui/widgets/stats_card.dart`. `StatsPeriod` is defined only in `stats_models.dart`.
-- Planned (Batch 7): a "Window" option. Off (default): Week, Month and Year are the current calendar week,
-  month and year, as today. On: they become rolling ranges ending today: Last 7 days, one calendar month
-  back from today (28, 29, 30 or 31 days), and Last 12 months. All time is the same. Charts stay by day
-  for 7 days and a month, and by month for 12 months. The switch sits in the period sheet on the You card
-  and on the Stats page, is saved in SharedPreferencesAsync, and both screens share the choice.
 
 ## Backup (You > Backup and data)
 
@@ -397,8 +420,8 @@ Code lives in `lib/background/`.
   never from the worker. Each isolate calls `initNotifications()` itself.
 - **Testing:** use the temporary `debugRewindLastCheck()` (sets the last check to 30 days ago) and
   `runEpisodeCheckNow()` (runs the task once), both in `background_worker.dart`, before `runApp`, then
-  remove the calls. To test the reading check-in quickly, set `checkInEvery` and `answerWithin` to 1 minute in
-  `reading_session_provider.dart`, then put them back to 15 and 2.
+  remove the calls. To test the reading check-in quickly, set Check-in every to 5 minutes and Time to answer to
+  1 minute in You > Reading session.
 
 ## Home screen
 
@@ -486,13 +509,22 @@ Recommendations: other books by the same author plus top-rated books in one of t
 Posters are stored as medium images. Detail pages and the hero swap the URL for a larger version
 at display time (TMDB w780, Open Library -L).
 
-## Release
+## Next release
 
-Before version 1 (end of Batch 7): measure the release APK size
-(`flutter build apk --release --split-per-abi`, and `flutter build apk --analyze-size --target-platform android-arm64`),
-check that code and resource shrinking are on in `android/app/build.gradle.kts`, trim anything large,
-upgrade `workmanager` (Kotlin Gradle plugin warning), review the `USE_EXACT_ALARM` note (Android setup),
-then release version 1. (A debug build from `flutter run` is always much bigger than a release build.)
+- Big Clock-style number in the reading timer notification (needs native Android code, a custom layout)
+- Rolling "Window" stats: Off (default) keeps Week, Month and Year as the current calendar week, month and year.
+  On: Last 7 days, one calendar month back from today (28 to 31 days) and Last 12 months. All time is the same.
+  Charts stay by day for 7 days and a month, and by month for 12 months. The switch sits in the period sheet on
+  the You card and on the Stats page, is saved in SharedPreferencesAsync, and both screens share the choice.
+- Upgrade `flutter_local_notifications` to 23.x (a major update: re-test notifications, channels, scheduled
+  alarms, the Stop button and the alarm sound) and re-check the `android_file_picker` override
+- `workmanager`: already the latest version, but it still prints a Kotlin Gradle plugin warning. Check for a new
+  release before each build of a new version.
+- Optional: `cupertino_icons` 2.0 (not used by app code)
+- Optional: background check polish (a short pause between series for TMDB rate limits, skip long-ended shows,
+  show "last checked" time, needs a schema migration)
+- Optional: remember the last Contents segment after closing the app, newest-first order in lists (needs a
+  schema change), filter noisy Open Library subjects in genre chips, reading goals
 
 ## Progress
 
@@ -533,13 +565,13 @@ then release version 1. (A debug build from `flutter run` is always much bigger 
       menus, reading rules, ReadingLogs in the export
 - [x] Batch 5b: Home hero progress card, reading session (focus timer) with check-ins, session button on the book
       page, alarm-style check-in (on time, rings until answered), notification timer with Stop button, mandatory
-      progress update after an automatic stop, old notification channels removed
-- [ ] Batch 5c: reading stats in the Books view (pages, reading days, average, streaks, reading time, pages chart)
-      and ReadingLogs in import (files delivered, waiting for confirmation)
-- [ ] Optional: big Clock-style number in the reading timer notification (needs native Android code)
-- [ ] Batch 7: rolling "Window" stats (Last 7 days, Last month, Last 12 months), then app size check, `workmanager`
-      upgrade, then release version 1
-- [ ] Background check polish (optional, when the library grows): short pause between series for
-      TMDB rate limits, skip long-ended shows, show "last checked" time (needs a schema migration)
-- [ ] Later, if wanted: remember the last Contents segment after closing the app, newest-first order in
-      lists (needs a schema change), filter noisy Open Library subjects in genre chips, reading goals
+      progress update after an automatic stop
+- [x] Batch 5c: reading stats in the Books view and ReadingLogs in import
+- [x] Reading log time after an automatic stop is the end of the session
+- [x] App size check: release APK 23.7 MB (arm64), nothing worth trimming
+- [x] Release setup: own app ID, debug app ID and name, own signing key, manifest label, launcher icon
+- [ ] Reading session timing setting (You > Reading session > Check-in timing, one sheet with both times)
+- [ ] Release 1.0.0: release build installed on the phone, library imported from the JSON backup, release test
+      done (reading session and alarm, notification timer, import and export, daily check, region, stats),
+      old `com.example.bookmark` app uninstalled
+- [ ] Next release: see the Next release section
