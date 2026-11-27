@@ -8,9 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../background/notifications.dart';
 import '../data/app_database.dart';
 import '../providers.dart';
-
-const checkInEvery = Duration(seconds: 30);
-const answerWithin = Duration(seconds: 15);
+import '../settings/reading_settings_provider.dart';
 
 const _sessionKey = 'readingSession';
 const _pendingKey = 'readingPendingUpdate';
@@ -24,12 +22,16 @@ class ReadingSession {
     required this.title,
     required this.startedAt,
     required this.lastConfirmedAt,
+    this.checkInEvery = const Duration(minutes: 15),
+    this.answerWithin = const Duration(minutes: 2),
   });
 
   final int itemId;
   final String title;
   final DateTime startedAt;
   final DateTime lastConfirmedAt;
+  final Duration checkInEvery;
+  final Duration answerWithin;
 
   DateTime get checkInAt => lastConfirmedAt.add(checkInEvery);
   DateTime get deadline => checkInAt.add(answerWithin);
@@ -39,6 +41,8 @@ class ReadingSession {
     title: title,
     startedAt: startedAt,
     lastConfirmedAt: time,
+    checkInEvery: checkInEvery,
+    answerWithin: answerWithin,
   );
 
   String encode() => jsonEncode({
@@ -46,6 +50,8 @@ class ReadingSession {
     'title': title,
     'startedAt': startedAt.millisecondsSinceEpoch,
     'lastConfirmedAt': lastConfirmedAt.millisecondsSinceEpoch,
+    'checkInMinutes': checkInEvery.inMinutes,
+    'answerMinutes': answerWithin.inMinutes,
   });
 
   static ReadingSession? decode(String? raw) {
@@ -58,6 +64,8 @@ class ReadingSession {
         startedAt: DateTime.fromMillisecondsSinceEpoch(m['startedAt'] as int),
         lastConfirmedAt:
         DateTime.fromMillisecondsSinceEpoch(m['lastConfirmedAt'] as int),
+        checkInEvery: Duration(minutes: (m['checkInMinutes'] as int?) ?? 15),
+        answerWithin: Duration(minutes: (m['answerMinutes'] as int?) ?? 2),
       );
     } catch (_) {
       return null;
@@ -70,26 +78,33 @@ class PendingUpdate {
     required this.itemId,
     required this.title,
     required this.minutes,
+    this.endedAt,
   });
 
   final int itemId;
   final String title;
   final int minutes;
+  final DateTime? endedAt;
 
   String encode() => jsonEncode({
     'itemId': itemId,
     'title': title,
     'minutes': minutes,
+    'endedAt': endedAt?.millisecondsSinceEpoch,
   });
 
   static PendingUpdate? decode(String? raw) {
     if (raw == null) return null;
     try {
       final m = jsonDecode(raw) as Map<String, dynamic>;
+      final ended = m['endedAt'] as int?;
       return PendingUpdate(
         itemId: m['itemId'] as int,
         title: m['title'] as String,
         minutes: m['minutes'] as int,
+        endedAt: ended == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(ended),
       );
     } catch (_) {
       return null;
@@ -199,12 +214,15 @@ class ReadingSessionNotifier extends Notifier<ReadingSessionState> {
   }
 
   Future<void> start(MediaItem item) async {
+    final settings = await ref.read(readingSettingsProvider.future);
     final now = DateTime.now();
     final s = ReadingSession(
       itemId: item.id,
       title: item.title,
       startedAt: now,
       lastConfirmedAt: now,
+      checkInEvery: Duration(minutes: settings.checkInMinutes),
+      answerWithin: Duration(minutes: settings.answerMinutes),
     );
     state = ReadingSessionState(session: s, pending: state.pending);
     await _prefs.setString(_sessionKey, s.encode());
@@ -238,6 +256,7 @@ class ReadingSessionNotifier extends Notifier<ReadingSessionState> {
       itemId: s.itemId,
       title: s.title,
       minutes: minutesBetween(s.startedAt, s.lastConfirmedAt),
+      endedAt: s.lastConfirmedAt,
     );
     _timer?.cancel();
     _timer = null;

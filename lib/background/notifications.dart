@@ -13,8 +13,16 @@ const _stoppedId = 900000002;
 const _sessionId = 900000003;
 
 const stopActionId = 'stop_session';
-const _alarmChannelId = 'reading_alarm_v3';
-const _oldChannels = ['reading_checkin_alarm', 'reading_checkin_alarm_v2'];
+const _alarmChannelId = 'reading_alarm_v4';
+const _alarmUri = UriAndroidNotificationSound('content://settings/system/alarm_alert');
+
+const _oldChannels = [
+  'reading_checkin_alarm',
+  'reading_checkin_alarm_v2',
+  'reading_alarm_v3',
+];
+const _oldSounds = ['alarm', 'notification', 'silent'];
+const _oldVibrations = ['off', 'gentle', 'standard', 'strong'];
 
 const _stoppedDetails = NotificationDetails(
   android: AndroidNotificationDetails(
@@ -28,11 +36,11 @@ const _stoppedDetails = NotificationDetails(
 
 final _alarmChannel = AndroidNotificationChannel(
   _alarmChannelId,
-  'Reading alarm (sound)',
+  'Reading alarm',
   description: 'Rings like an alarm when a reading session asks if you are still reading',
   importance: Importance.max,
   playSound: true,
-  sound: const UriAndroidNotificationSound('content://settings/system/alarm_alert'),
+  sound: _alarmUri,
   audioAttributesUsage: AudioAttributesUsage.alarm,
   enableVibration: true,
   vibrationPattern: Int64List.fromList([0, 800, 400, 800, 400, 800, 400, 800]),
@@ -42,12 +50,12 @@ NotificationDetails _alarmDetails(DateTime at, DateTime deadline) {
   return NotificationDetails(
     android: AndroidNotificationDetails(
       _alarmChannelId,
-      'Reading alarm (sound)',
+      'Reading alarm',
       importance: Importance.max,
       priority: Priority.max,
       category: AndroidNotificationCategory.alarm,
       audioAttributesUsage: AudioAttributesUsage.alarm,
-      sound: const UriAndroidNotificationSound('content://settings/system/alarm_alert'),
+      sound: _alarmUri,
       playSound: true,
       enableVibration: true,
       vibrationPattern: Int64List.fromList([0, 800, 400, 800, 400, 800, 400, 800]),
@@ -83,7 +91,12 @@ Future<void> initNotifications({void Function(String? payload)? onTap}) async {
       AndroidFlutterLocalNotificationsPlugin>();
   try {
     await android?.createNotificationChannel(_alarmChannel);
-    for (final id in _oldChannels) {
+    final old = [
+      ..._oldChannels,
+      for (final s in _oldSounds)
+        for (final v in _oldVibrations) 'reading_alarm_${s}_$v',
+    ];
+    for (final id in old) {
       await android?.deleteNotificationChannel(channelId: id);
     }
   } catch (e) {

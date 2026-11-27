@@ -5,17 +5,19 @@ import '../data/backup_service.dart';
 import '../providers.dart';
 import '../settings/app_info_provider.dart';
 import '../settings/daily_check_provider.dart';
+import '../settings/reading_settings.dart';
+import '../settings/reading_settings_provider.dart';
 import '../settings/region_provider.dart';
 import '../settings/theme_provider.dart';
 import 'import_flow.dart';
 import 'widgets/accent_picker.dart';
 import 'widgets/app_nav_bar.dart';
 import 'widgets/premium_app_bar.dart';
+import 'widgets/reading_times_sheet.dart';
 import 'widgets/region_sheet.dart';
 import 'widgets/settings_section.dart';
 import 'widgets/stats_card.dart';
 
-/// The You tab: stats on top, then grouped settings.
 class YouScreen extends ConsumerWidget {
   const YouScreen({super.key});
 
@@ -49,7 +51,6 @@ class YouScreen extends ConsumerWidget {
     );
   }
 
-  /// Writes the backup file and opens the share sheet.
   Future<void> _export(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -65,6 +66,8 @@ class YouScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(themeModeProvider);
     final dailyCheck = ref.watch(dailyCheckProvider).asData?.value ?? true;
+    final reading = ref.watch(readingSettingsProvider).asData?.value ??
+        const ReadingSettings();
     final region = ref.watch(regionProvider).asData?.value ?? defaultRegion;
     final version = ref.watch(appVersionProvider).asData?.value ?? '';
 
@@ -134,6 +137,21 @@ class YouScreen extends ConsumerWidget {
                 ),
                 onTap: () =>
                     ref.read(dailyCheckProvider.notifier).set(!dailyCheck),
+              ),
+            ],
+          ),
+
+          SettingsSection(
+            title: 'Reading session',
+            children: [
+              SettingsTile(
+                icon: Icons.timer_outlined,
+                title: 'Check-in timing',
+                subtitle:
+                'Every ${minutesLabel(reading.checkInMinutes)}, '
+                    '${minutesLabel(reading.answerMinutes)} to answer',
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => showReadingTimesSheet(context, ref),
               ),
             ],
           ),

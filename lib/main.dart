@@ -101,7 +101,11 @@ Future<void> _runCheckIn(WidgetRef ref, ReadingSession session) async {
   _checkInOpen = true;
   bool stillReading;
   try {
-    stillReading = await showCheckInDialog(ctx, session.deadline, answerWithin);
+    stillReading = await showCheckInDialog(
+      ctx,
+      session.deadline,
+      session.answerWithin,
+    );
   } finally {
     _checkInOpen = false;
   }
@@ -153,6 +157,7 @@ Future<void> _showPending(WidgetRef ref) async {
       pageCount: result.pageCount,
       value: result.value,
       minutes: result.minutes,
+      readAt: pending.endedAt,
     );
     await notifier.clearPending();
 

@@ -41,6 +41,7 @@ extension ReadingQueries on AppDatabase {
         required int? pageCount,
         required int value,
         int? minutes,
+        DateTime? readAt,
       }) =>
       transaction(() async {
         final item = await (select(mediaItems)
@@ -63,7 +64,7 @@ extension ReadingQueries on AppDatabase {
               : from;
           await into(readingLogs).insert(ReadingLogsCompanion.insert(
             itemId: itemId,
-            readAt: DateTime.now(),
+            readAt: readAt ?? DateTime.now(),
             fromPage: from,
             toPage: to,
             pages: Value(pc == null ? null : to - from),

@@ -1,5 +1,5 @@
 name: bookmark
-description: "A new Flutter project."
+description: "Bookmark: a personal tracker for books, movies and series."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -50,6 +50,9 @@ dependencies:
   file_picker: ^13.3.3
   package_info_plus: ^10.2.2
   timezone: ^0.11.2
+
+dependency_overrides:
+  android_file_picker: 2.1.6
 
 dev_dependencies:
   flutter_test:

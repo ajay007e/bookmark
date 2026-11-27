@@ -18,13 +18,13 @@ packages:
     source: hosted
     version: "14.7.0"
   android_file_picker:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
       name: android_file_picker
-      sha256: b8462091dcdd075511a842272374be2232e917ee2a51ecdba4aca02bff529482
+      sha256: e7e02f9bab7e014e5b47e4cef135a8f5c66f5c14fd90986e415e758f6a1762e1
       url: "https://pub.dev"
     source: hosted
-    version: "2.2.1"
+    version: "2.1.6"
   args:
     dependency: transitive
     description:
